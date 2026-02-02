@@ -122,24 +122,38 @@ async function handleSQSRecord(record, results) {
 
 async function invalidateCdnFile(s3Key) {
   // CDN files are served at /cdn/{s3Key}
+  // CloudFront caches based on the URL-encoded path
   const invalidationPath = `/cdn/${s3Key}`;
   
   console.log(`Creating CloudFront invalidation for: ${invalidationPath}`);
+  console.log(`S3 Key: ${s3Key}`);
 
   try {
+    // Create invalidation with wildcard to ensure all variations are cleared
+    // This handles cases where the filename might be URL-encoded differently
+    const pathParts = s3Key.split('/');
+    const fileId = pathParts[0];
+    const wildcardPath = `/cdn/${fileId}/*`;
+    
+    const paths = [
+      invalidationPath,  // Exact path
+      wildcardPath       // Wildcard for the entire file ID directory
+    ];
+    
     await cfClient.send(new CreateInvalidationCommand({
       DistributionId: CLOUDFRONT_DISTRIBUTION_ID,
       InvalidationBatch: {
         CallerReference: `${Date.now()}-${s3Key}`,
         Paths: {
-          Quantity: 1,
-          Items: [invalidationPath]
+          Quantity: paths.length,
+          Items: paths
         }
       }
     }));
-    console.log(`CloudFront invalidation created for: ${invalidationPath}`);
+    console.log(`CloudFront invalidation created for paths:`, paths);
   } catch (error) {
     console.error(`Failed to create CloudFront invalidation:`, error);
+    console.error(`Error details:`, JSON.stringify(error, null, 2));
     // Don't throw - file is already deleted, invalidation failure shouldn't block
   }
 }

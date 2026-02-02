@@ -5,6 +5,7 @@ let currentShareFileData = null;
 let currentEditFileId = null;
 let currentEditFileData = null;
 let pendingUploadFile = null;
+let pendingUploadFiles = [];
 let allFiles = [];
 let currentTypeFilter = 'all';
 
@@ -75,8 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function setupDropZone() {
   const dropZone = document.getElementById("drop-zone");
   const fileInput = document.getElementById("file-input");
-
-  dropZone.addEventListener("click", () => fileInput.click());
+  const folderInput = document.getElementById("folder-input");
   
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -87,33 +87,97 @@ function setupDropZone() {
     dropZone.classList.remove("drop-zone-active");
   });
 
-  dropZone.addEventListener("drop", (e) => {
+  dropZone.addEventListener("drop", async (e) => {
     e.preventDefault();
     dropZone.classList.remove("drop-zone-active");
-    if (e.dataTransfer.files.length) {
-      selectFile(e.dataTransfer.files[0]);
+    
+    const items = e.dataTransfer.items;
+    if (items) {
+      const files = await getAllFilesFromDataTransfer(items);
+      if (files.length > 0) {
+        selectFiles(files);
+      }
+    } else if (e.dataTransfer.files.length) {
+      selectFiles(Array.from(e.dataTransfer.files));
     }
   });
 }
 
+async function getAllFilesFromDataTransfer(items) {
+  const files = [];
+  
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i].webkitGetAsEntry();
+    if (item) {
+      await traverseFileTree(item, files);
+    }
+  }
+  
+  return files;
+}
+
+async function traverseFileTree(item, files, path = "") {
+  if (item.isFile) {
+    return new Promise((resolve) => {
+      item.file((file) => {
+        files.push(file);
+        resolve();
+      });
+    });
+  } else if (item.isDirectory) {
+    const dirReader = item.createReader();
+    return new Promise((resolve) => {
+      dirReader.readEntries(async (entries) => {
+        for (const entry of entries) {
+          await traverseFileTree(entry, files, path + item.name + "/");
+        }
+        resolve();
+      });
+    });
+  }
+}
+
 function handleFileSelect(event) {
   if (event.target.files.length) {
-    selectFile(event.target.files[0]);
+    selectFiles(Array.from(event.target.files));
   }
 }
 
 function selectFile(file) {
   pendingUploadFile = file;
+  pendingUploadFiles = [file];
   document.getElementById("selected-filename").textContent = file.name;
   document.getElementById("selected-filesize").textContent = formatFileSize(file.size);
   document.getElementById("upload-options").classList.remove("hidden");
   selectUploadType("cdn");
 }
 
+function selectFiles(files) {
+  if (files.length === 0) return;
+  
+  pendingUploadFiles = files;
+  pendingUploadFile = files[0]; // Keep for backward compatibility
+  
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  
+  if (files.length === 1) {
+    document.getElementById("selected-filename").textContent = files[0].name;
+    document.getElementById("selected-filesize").textContent = formatFileSize(files[0].size);
+  } else {
+    document.getElementById("selected-filename").textContent = `${files.length} files selected`;
+    document.getElementById("selected-filesize").textContent = `Total: ${formatFileSize(totalSize)}`;
+  }
+  
+  document.getElementById("upload-options").classList.remove("hidden");
+  selectUploadType("cdn");
+}
+
 function clearSelectedFile() {
   pendingUploadFile = null;
+  pendingUploadFiles = [];
   document.getElementById("upload-options").classList.add("hidden");
   document.getElementById("file-input").value = "";
+  document.getElementById("folder-input").value = "";
 }
 
 // New click-to-select upload type function
@@ -155,7 +219,7 @@ function handleExpiryTypeChange() {
 }
 
 function startUpload() {
-  if (!pendingUploadFile) return;
+  if (!pendingUploadFiles || pendingUploadFiles.length === 0) return;
   
   const uploadType = document.getElementById("upload-type").value;
   
@@ -179,8 +243,15 @@ function startUpload() {
   }
   
   document.getElementById("upload-options").classList.add("hidden");
-  uploadFile(pendingUploadFile, uploadType, expiresInSeconds, expiresAt, maxDownloads);
+  
+  if (pendingUploadFiles.length === 1) {
+    uploadFile(pendingUploadFiles[0], uploadType, expiresInSeconds, expiresAt, maxDownloads);
+  } else {
+    uploadMultipleFiles(pendingUploadFiles, uploadType, expiresInSeconds, expiresAt, maxDownloads);
+  }
+  
   pendingUploadFile = null;
+  pendingUploadFiles = [];
 }
 
 async function verifySession() {
@@ -276,6 +347,14 @@ function renderFiles(files) {
       </button>
     ` : '';
     
+    const openButton = file.uploadType === "cdn" && file.cdnUrl ? `
+      <button onclick='window.open("${file.cdnUrl}", "_blank")' class="text-gray-400 hover:text-green-400 p-2 transition" title="Open in New Tab">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+        </svg>
+      </button>
+    ` : '';
+    
     return `
     <div class="file-row p-4 flex items-center justify-between transition-opacity" data-file-id="${file.id}">
       <div class="flex-1 min-w-0 flex items-center gap-3">
@@ -298,6 +377,7 @@ function renderFiles(files) {
         <span class="px-2.5 py-1 text-xs rounded-lg font-medium ${file.status === 'uploaded' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}">
           ${file.status}
         </span>
+        ${openButton}
         ${editButton}
         <button onclick='openShareModal(${JSON.stringify(file).replace(/'/g, "&#39;")})' class="text-gray-400 hover:text-indigo-400 p-2 transition" title="Share">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -516,6 +596,7 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
 
     progress.classList.add("hidden");
     document.getElementById("file-input").value = "";
+    document.getElementById("folder-input").value = "";
     loadFiles();
 
     if (uploadType === "cdn" && cdnUrl) {
@@ -596,6 +677,198 @@ async function doMultipartUpload(file, fileId, multipart, percentEl, barEl, spee
   }
 
   // Complete the multipart upload
+  percentEl.textContent = "Completing...";
+  const completeRes = await fetch(`${API_URL}/upload/${fileId}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ parts })
+  });
+
+  if (!completeRes.ok) {
+    throw new Error("Failed to complete multipart upload");
+  }
+}
+
+async function uploadMultipleFiles(files, uploadType, expiresInSeconds, expiresAt, maxDownloads) {
+  const progress = document.getElementById("upload-progress");
+  const filename = document.getElementById("upload-filename");
+  const percent = document.getElementById("upload-percent");
+  const speedEl = document.getElementById("upload-speed");
+  const etaEl = document.getElementById("upload-eta");
+  const bar = document.getElementById("upload-bar");
+
+  progress.classList.remove("hidden");
+  
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  const tracker = new UploadTracker(totalSize);
+  
+  let uploadedSize = 0;
+  let successCount = 0;
+  let failedFiles = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    filename.textContent = `${i + 1}/${files.length}: ${file.name}`;
+    
+    try {
+      const body = {
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSize: file.size,
+        uploadType
+      };
+      
+      if (uploadType === "private") {
+        if (expiresAt) {
+          body.expiresAt = expiresAt;
+        } else if (expiresInSeconds) {
+          body.expiresInSeconds = expiresInSeconds;
+        }
+        if (maxDownloads) {
+          body.maxDownloads = maxDownloads;
+        }
+      }
+      
+      const res = await fetch(`${API_URL}/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        let errorMsg = "Failed to get upload URL";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      const uploadData = await res.json();
+      const { uploadUrl, fileId, multipart } = uploadData;
+
+      if (multipart) {
+        // Multipart upload for large files
+        await doMultipartUploadInBatch(file, fileId, multipart, i, files.length, uploadedSize, totalSize, percent, bar, speedEl, etaEl, tracker);
+      } else {
+        // Single PUT upload
+        await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              const currentProgress = uploadedSize + e.loaded;
+              const pct = Math.round((currentProgress / totalSize) * 100);
+              percent.textContent = `${pct}%`;
+              bar.style.width = `${pct}%`;
+              
+              const { speed, eta } = tracker.update(currentProgress);
+              speedEl.textContent = formatSpeed(speed);
+              etaEl.textContent = `ETA ${formatETA(eta)}`;
+            }
+          });
+          xhr.addEventListener("load", () => {
+            if (xhr.status === 200) {
+              resolve();
+            } else {
+              reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+          });
+          xhr.addEventListener("error", () => {
+            reject(new Error("Network error during upload"));
+          });
+          xhr.open("PUT", uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.send(file);
+        });
+
+        await fetch(`${API_URL}/files/${fileId}/confirm`, {
+          method: "POST",
+          credentials: "include"
+        });
+      }
+      
+      uploadedSize += file.size;
+      successCount++;
+      
+    } catch (error) {
+      console.error(`Upload failed for ${file.name}:`, error);
+      failedFiles.push({ name: file.name, error: error.message });
+      uploadedSize += file.size; // Still count it for progress
+    }
+  }
+
+  progress.classList.add("hidden");
+  document.getElementById("file-input").value = "";
+  document.getElementById("folder-input").value = "";
+  loadFiles();
+
+  if (failedFiles.length === 0) {
+    showToast(`All ${successCount} files uploaded successfully!`, "success");
+  } else if (successCount > 0) {
+    showToast(`${successCount} files uploaded, ${failedFiles.length} failed`, "warning", 6000);
+  } else {
+    showToast(`All uploads failed`, "error", 6000);
+  }
+}
+
+async function doMultipartUploadInBatch(file, fileId, multipart, fileIndex, totalFiles, uploadedSoFar, totalSize, percentEl, barEl, speedEl, etaEl, tracker) {
+  const { partCount, partSize } = multipart;
+  const parts = [];
+  let fileUploaded = 0;
+
+  for (let partNum = 1; partNum <= partCount; partNum++) {
+    const start = (partNum - 1) * partSize;
+    const end = Math.min(start + partSize, file.size);
+    const partBlob = file.slice(start, end);
+    const currentPartSize = end - start;
+
+    const partRes = await fetch(`${API_URL}/upload/${fileId}/part`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ partNumber: partNum })
+    });
+
+    if (!partRes.ok) {
+      throw new Error(`Failed to get URL for part ${partNum}`);
+    }
+
+    const { uploadUrl } = await partRes.json();
+
+    const etag = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          const currentProgress = uploadedSoFar + fileUploaded + e.loaded;
+          const pct = Math.round((currentProgress / totalSize) * 100);
+          percentEl.textContent = `${pct}%`;
+          barEl.style.width = `${pct}%`;
+          
+          const { speed, eta } = tracker.update(currentProgress);
+          speedEl.textContent = formatSpeed(speed);
+          etaEl.textContent = `ETA ${formatETA(eta)} (file ${fileIndex + 1}/${totalFiles}, part ${partNum}/${partCount})`;
+        }
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status === 200) {
+          resolve(xhr.getResponseHeader("ETag"));
+        } else {
+          reject(new Error(`Part ${partNum} upload failed: ${xhr.status}`));
+        }
+      });
+      xhr.addEventListener("error", () => {
+        reject(new Error(`Network error uploading part ${partNum}`));
+      });
+      xhr.open("PUT", uploadUrl);
+      xhr.send(partBlob);
+    });
+
+    fileUploaded += currentPartSize;
+    parts.push({ partNumber: partNum, etag });
+  }
+
   percentEl.textContent = "Completing...";
   const completeRes = await fetch(`${API_URL}/upload/${fileId}/complete`, {
     method: "POST",

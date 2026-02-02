@@ -206,11 +206,6 @@ resource "aws_cloudfront_response_headers_policy" "cdn_files" {
     }
   }
 
-  custom_headers_config {
-    items {
-      header   = "Cache-Control"
-      value    = "no-cache, must-revalidate"
-      override = true
-    }
-  }
+  # Remove the custom Cache-Control header that was interfering with caching
+  # Let the cache policy handle caching behavior instead
 }
