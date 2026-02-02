@@ -33,8 +33,9 @@ resource "aws_cloudfront_function" "cdn_rewrite" {
   EOF
 }
 
-# CloudFront Distribution
+# CloudFront Distribution - DataDrop
 resource "aws_cloudfront_distribution" "main" {
+  comment             = "DataDrop"
   enabled             = true
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
