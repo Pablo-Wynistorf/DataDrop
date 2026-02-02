@@ -94,7 +94,7 @@ resource "null_resource" "lambda_deletion_npm_install" {
 data "archive_file" "lambda_deletion" {
   type        = "zip"
   source_dir  = "${path.module}/../src/lambda/deletion"
-  output_path = "${path.module}/zip_archives/lambda_deletion.zip"
+  output_path = "${path.module}/.terraform/lambda-deletion.zip"
   depends_on  = [null_resource.lambda_deletion_npm_install]
 }
 

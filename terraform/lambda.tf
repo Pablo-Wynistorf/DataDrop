@@ -84,7 +84,7 @@ resource "null_resource" "lambda_api_npm_install" {
 data "archive_file" "lambda" {
   type        = "zip"
   source_dir  = "${path.module}/../src/lambda/api"
-  output_path = "${path.module}/zip_archives/lambda.zip"
+  output_path = "${path.module}/.terraform/lambda-api.zip"
   depends_on  = [null_resource.lambda_api_npm_install]
 }
 
