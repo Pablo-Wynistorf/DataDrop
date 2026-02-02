@@ -81,8 +81,7 @@ resource "aws_iam_role_policy" "lambda_deletion" {
 
 resource "null_resource" "lambda_deletion_npm_install" {
   triggers = {
-    package_json = filemd5("${path.module}/../src/lambda/deletion/package.json")
-    package_lock = try(filemd5("${path.module}/../src/lambda/deletion/package-lock.json"), "")
+    always_run = timestamp()
   }
 
   provisioner "local-exec" {

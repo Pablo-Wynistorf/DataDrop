@@ -82,8 +82,7 @@ resource "aws_iam_role_policy" "lambda" {
 
 resource "null_resource" "lambda_api_npm_install" {
   triggers = {
-    package_json = filemd5("${path.module}/../src/lambda/api/package.json")
-    package_lock = try(filemd5("${path.module}/../src/lambda/api/package-lock.json"), "")
+    always_run = timestamp()
   }
 
   provisioner "local-exec" {
