@@ -206,7 +206,4 @@ resource "aws_cloudfront_response_headers_policy" "cdn_files" {
       override = false
     }
   }
-
-  # Remove the custom Cache-Control header that was interfering with caching
-  # Let the cache policy handle caching behavior instead
 }
