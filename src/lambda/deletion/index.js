@@ -121,12 +121,12 @@ async function handleSQSRecord(record, results) {
 }
 
 async function invalidateCdnFile(s3Key) {
-  // CDN files are served at /cdn/{fileId}/{encodedFileName}
-  // CloudFront caches based on the URL path as requested by the browser
-  // The s3Key is stored as {fileId}/{fileName}, but URLs use encodeURIComponent on the filename
+  // s3Key is now stored as cdn/{fileId}/{fileName}
+  // CloudFront path is /{s3Key} which equals /cdn/{fileId}/{fileName}
   const pathParts = s3Key.split('/');
-  const fileId = pathParts[0];
-  const fileName = pathParts.slice(1).join('/');
+  // pathParts[0] = "cdn", pathParts[1] = fileId, pathParts[2+] = fileName
+  const fileId = pathParts[1];
+  const fileName = pathParts.slice(2).join('/');
   
   // URL-encode the filename to match how CloudFront caches the path
   const encodedFileName = encodeURIComponent(fileName);
@@ -137,13 +137,9 @@ async function invalidateCdnFile(s3Key) {
   console.log(`File ID: ${fileId}, Encoded filename: ${encodedFileName}`);
 
   try {
-    // Create invalidation with wildcard to ensure all variations are cleared
-    // This handles cases where the filename might be URL-encoded differently
-    const wildcardPath = `/cdn/${fileId}/*`;
     
     const paths = [
-      invalidationPath,  // Exact URL-encoded path
-      wildcardPath       // Wildcard for the entire file ID directory
+      invalidationPath
     ];
     
     await cfClient.send(new CreateInvalidationCommand({

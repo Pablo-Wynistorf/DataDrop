@@ -58,7 +58,8 @@ router.post("/", async (req, res) => {
 
     const fileId = uuidv4();
     const bucket = isCdn ? CDN_BUCKET_NAME : BUCKET_NAME;
-    const s3Key = isCdn ? `${fileId}/${fileName}` : `uploads/${fileId}/${fileName}`;
+    // CDN files stored with cdn/ prefix to match CloudFront path pattern directly
+    const s3Key = isCdn ? `cdn/${fileId}/${fileName}` : `uploads/${fileId}/${fileName}`;
 
     // For files > 5GB, use multipart upload
     const useMultipart = fileSize > MULTIPART_THRESHOLD;

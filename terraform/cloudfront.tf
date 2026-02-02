@@ -14,25 +14,6 @@ resource "aws_cloudfront_origin_access_control" "cdn_files" {
   signing_protocol                  = "sigv4"
 }
 
-# CloudFront Function to strip /cdn/ prefix for S3 origin requests
-resource "aws_cloudfront_function" "cdn_rewrite" {
-  name    = "${var.project_name}-cdn-rewrite"
-  runtime = "cloudfront-js-2.0"
-  publish = true
-  code    = <<-EOF
-    function handler(event) {
-      var request = event.request;
-      
-      // Strip /cdn/ prefix so S3 can find the file
-      if (request.uri.startsWith('/cdn/')) {
-        request.uri = request.uri.substring(4);
-      }
-      
-      return request;
-    }
-  EOF
-}
-
 # CloudFront Distribution - DataDrop
 resource "aws_cloudfront_distribution" "main" {
   comment             = "DataDrop"
@@ -94,12 +75,6 @@ resource "aws_cloudfront_distribution" "main" {
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "cdn-files"
     viewer_protocol_policy = "redirect-to-https"
-
-    # Strip /cdn/ prefix before requesting from S3
-    function_association {
-      event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.cdn_rewrite.arn
-    }
 
     # Use cache policy instead of forwarded_values for better header handling
     cache_policy_id            = aws_cloudfront_cache_policy.cdn_files.id
