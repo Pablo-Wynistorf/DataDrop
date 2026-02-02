@@ -3,14 +3,14 @@
 ############################
 
 locals {
-  build_dir = "${path.module}/.build-lambda-api"
+  lambda_api_build_dir = "${path.module}/.build-lambda-api"
 }
 
 data "aws_caller_identity" "lambda_api" {}
 
 resource "null_resource" "lambda_api_build_dir" {
   provisioner "local-exec" {
-    command = "mkdir -p ${local.build_dir}"
+    command = "mkdir -p ${local.lambda_api_build_dir}"
   }
 }
 
@@ -95,7 +95,7 @@ resource "null_resource" "lambda_api_npm_install" {
 data "archive_file" "lambda_api_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../src/lambda/api"
-  output_path = "${local.build_dir}/lambda-api.zip"
+  output_path = "${local.lambda_api_build_dir}/lambda-api.zip"
 
   depends_on = [
     null_resource.lambda_api_build_dir,
