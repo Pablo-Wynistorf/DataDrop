@@ -1,0 +1,118 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build CLI Binaries
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build binaries
+        working-directory: datadropcli
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-linux-amd64 .
+          
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-linux-arm64 .
+          
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-darwin-amd64 .
+          
+          # macOS ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-darwin-arm64 .
+          
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-windows-amd64.exe .
+
+      - name: Create checksums
+        working-directory: dist
+        run: |
+          sha256sum * > checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: DataDrop CLI ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/datadrop-linux-amd64
+            dist/datadrop-linux-arm64
+            dist/datadrop-darwin-amd64
+            dist/datadrop-darwin-arm64
+            dist/datadrop-windows-amd64.exe
+            dist/checksums.txt
+          body: |
+            ## DataDrop CLI ${{ steps.version.outputs.VERSION }}
+            
+            ### Installation
+            
+            **macOS (Apple Silicon):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/datadrop-darwin-arm64 -o /usr/local/bin/datadrop
+            chmod +x /usr/local/bin/datadrop
+            ```
+            
+            **macOS (Intel):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/datadrop-darwin-amd64 -o /usr/local/bin/datadrop
+            chmod +x /usr/local/bin/datadrop
+            ```
+            
+            **Linux (x86_64):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/datadrop-linux-amd64 -o /usr/local/bin/datadrop
+            chmod +x /usr/local/bin/datadrop
+            ```
+            
+            **Linux (ARM64):**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/datadrop-linux-arm64 -o /usr/local/bin/datadrop
+            chmod +x /usr/local/bin/datadrop
+            ```
+            
+            **Windows:**
+            Download `datadrop-windows-amd64.exe` and add to your PATH.
+            
+            ### Usage
+            ```bash
+            datadrop login --api https://your-datadrop-url
+            datadrop upload myfile.txt
+            datadrop list
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

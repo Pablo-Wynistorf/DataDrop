@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DataDrop - Download</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            dark: { 50: '#f8fafc', 100: '#1e293b', 200: '#1a2234', 300: '#151c2c', 400: '#111827', 500: '#0d1321' },
+            accent: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-light { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+    .glow-border { box-shadow: 0 0 20px rgba(99, 102, 241, 0.15), inset 0 0 20px rgba(99, 102, 241, 0.05); }
+    .gradient-bg { background: linear-gradient(135deg, #0d1321 0%, #1a1a2e 50%, #16213e 100%); }
+    .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); transition: all 0.3s ease; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.5); }
+    .animate-float { animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+    .animate-pulse-slow { animation: pulse-slow 2s ease-in-out infinite; }
+    @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .spinner { border: 3px solid rgba(99, 102, 241, 0.2); border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center text-gray-100">
+  <div class="fixed inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute top-1/4 -left-32 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 -right-32 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+  </div>
+
+  <div class="glass rounded-3xl shadow-2xl p-8 w-full max-w-md mx-4 relative z-10 glow-border">
+    <div class="text-center mb-6">
+      <div class="w-12 h-12 mx-auto rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+      </div>
+      <p class="text-gray-500 text-sm">DataDrop</p>
+    </div>
+
+    <div id="loading" class="text-center py-8">
+      <div class="spinner w-12 h-12 mx-auto"></div>
+      <p class="mt-4 text-gray-400">Loading file info...</p>
+    </div>
+
+    <div id="error" class="hidden text-center py-8">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-red-500/20 flex items-center justify-center">
+        <svg class="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-semibold text-white mb-2">Error</h2>
+      <p id="error-message" class="text-gray-400"></p>
+    </div>
+
+    <div id="download-form" class="hidden">
+      <div class="text-center mb-6">
+        <div class="animate-float w-20 h-20 mx-auto mb-4 rounded-2xl bg-indigo-500/20 flex items-center justify-center">
+          <svg class="w-10 h-10 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <h2 id="file-name" class="text-xl font-semibold text-white break-all"></h2>
+        <p id="file-size" class="text-gray-400 mt-1"></p>
+      </div>
+
+      <div id="password-section" class="hidden mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Password required</label>
+        <input type="password" id="password-input" class="w-full bg-gray-800/50 border border-gray-600/50 rounded-xl px-4 py-3 text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition" placeholder="Enter password">
+        <p id="password-error" class="text-red-400 text-sm mt-2 hidden">Invalid password</p>
+      </div>
+
+      <div id="info-section" class="glass-light rounded-xl p-4 mb-6 space-y-2">
+        <p id="expires-info" class="hidden text-sm text-gray-400"></p>
+        <p id="file-expires-info" class="hidden text-sm text-gray-400"></p>
+        <p id="downloads-info" class="hidden text-sm text-gray-400"></p>
+      </div>
+
+      <button onclick="downloadFile()" class="w-full btn-primary text-white font-semibold py-4 px-6 rounded-xl text-lg flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Download
+      </button>
+    </div>
+
+    <div id="success" class="hidden text-center py-8">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-green-500/20 flex items-center justify-center animate-pulse-slow">
+        <svg class="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-semibold text-white mb-2">Download Started</h2>
+      <p class="text-gray-400">Your file is being downloaded.</p>
+      <p id="downloads-remaining" class="text-sm text-gray-500 mt-3 hidden"></p>
+    </div>
+  </div>
+
+  <script src="/js/file.js"></script>
+</body>
+</html>

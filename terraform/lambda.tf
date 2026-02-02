@@ -1,0 +1,126 @@
+# Lambda execution role
+resource "aws_iam_role" "lambda" {
+  name = "${var.project_name}-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = { Service = "lambda.amazonaws.com" }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda" {
+  name = "${var.project_name}-lambda-policy"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ]
+        Resource = [
+          aws_dynamodb_table.sessions.arn,
+          aws_dynamodb_table.files.arn,
+          "${aws_dynamodb_table.files.arn}/index/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+        Resource = [
+          "${aws_s3_bucket.files.arn}/*",
+          "${aws_s3_bucket.cdn_files.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = aws_sqs_queue.file_deletion.arn
+      }
+    ]
+  })
+}
+
+# Install npm dependencies for API Lambda
+resource "null_resource" "lambda_api_npm_install" {
+  triggers = {
+    package_json = filemd5("${path.module}/../src/lambda/api/package.json")
+  }
+
+  provisioner "local-exec" {
+    command     = "npm install --production"
+    working_dir = "${path.module}/../src/lambda/api"
+  }
+}
+
+# Package Lambda code
+data "archive_file" "lambda" {
+  type        = "zip"
+  source_dir  = "${path.module}/../src/lambda/api"
+  output_path = "${path.module}/zip_archives/lambda.zip"
+  depends_on  = [null_resource.lambda_api_npm_install]
+}
+
+# Lambda function
+resource "aws_lambda_function" "api" {
+  filename         = data.archive_file.lambda.output_path
+  function_name    = "${var.project_name}-api"
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.lambda.output_base64sha256
+  runtime          = "nodejs20.x"
+  timeout          = 30
+  memory_size      = 256
+
+  environment {
+    variables = {
+      BUCKET_NAME            = aws_s3_bucket.files.id
+      CDN_BUCKET_NAME        = aws_s3_bucket.cdn_files.id
+      CDN_URL                = "https://${aws_cloudfront_distribution.main.domain_name}/cdn"
+      FILES_TABLE            = aws_dynamodb_table.files.name
+      SESSIONS_TABLE         = aws_dynamodb_table.sessions.name
+      OIDC_ISSUER            = var.oidc_issuer
+      OIDC_CLIENT_ID         = var.oidc_client_id
+      OIDC_CLIENT_SECRET     = var.oidc_client_secret
+      REDIRECT_URI           = "https://${aws_cloudfront_distribution.main.domain_name}/api/auth/callback"
+      FRONTEND_URL           = "https://${aws_cloudfront_distribution.main.domain_name}"
+      JWT_SECRET             = var.jwt_secret
+      FILE_DELETION_QUEUE_URL = aws_sqs_queue.file_deletion.url
+    }
+  }
+}
+
+resource "aws_lambda_permission" "api_gateway" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}

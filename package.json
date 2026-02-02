@@ -1,0 +1,15 @@
+{
+  "name": "datadrop",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "install:api": "cd src/lambda/api && npm install",
+    "install:deletion": "cd src/lambda/deletion && npm install",
+    "deploy": "cd terraform && terraform apply -auto-approve",
+    "plan": "cd terraform && terraform plan",
+    "init": "cd terraform && terraform init"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.131"
+  }
+}
