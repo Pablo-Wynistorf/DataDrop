@@ -5,11 +5,43 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/pkg/browser"
 )
+
+// hasGUIBrowser checks if a real GUI browser is available (not terminal browsers)
+func hasGUIBrowser() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS always has a GUI browser available if running with a display
+		return os.Getenv("DISPLAY") != "" || os.Getenv("TERM_PROGRAM") != ""
+	case "windows":
+		// Windows always has a default browser
+		return true
+	default:
+		// Linux/Unix: check for DISPLAY and common GUI browsers
+		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+			return false
+		}
+		// Check for common GUI browsers (exclude terminal browsers)
+		guiBrowsers := []string{
+			"xdg-open", "firefox", "google-chrome", "chromium", "chromium-browser",
+			"brave", "brave-browser", "opera", "vivaldi", "epiphany", "konqueror",
+			"microsoft-edge", "safari",
+		}
+		for _, b := range guiBrowsers {
+			if _, err := exec.LookPath(b); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+}
 
 type CLILoginResponse struct {
 	Code        string `json:"code"`
@@ -64,7 +96,7 @@ func Login(apiEndpoint string) (*AuthResult, error) {
 		return nil, fmt.Errorf("failed to parse login response: %w", err)
 	}
 
-	// Step 2: Show code and try to open browser
+	// Step 2: Show code and URL (always displayed for use on another device)
 	fmt.Println()
 	fmt.Println("┌─────────────────────────────────────────┐")
 	fmt.Println("│         DataDrop CLI Login              │")
@@ -72,22 +104,16 @@ func Login(apiEndpoint string) (*AuthResult, error) {
 	fmt.Printf("│  Verification code: %s            │\n", loginResp.DisplayCode)
 	fmt.Println("└─────────────────────────────────────────┘")
 	fmt.Println()
+	fmt.Println("Open this URL in a browser (or use another device):")
+	fmt.Println()
+	fmt.Printf("  %s\n", loginResp.AuthURL)
+	fmt.Println()
 
-	// Try to open browser
-	browserOpened := false
-	if err := browser.OpenURL(loginResp.AuthURL); err == nil {
-		browserOpened = true
-		fmt.Println("✓ Browser opened. Please log in and authorize the CLI.")
-	}
-
-	if !browserOpened {
-		fmt.Println("Could not open browser automatically.")
-		fmt.Println()
-		fmt.Println("Open this URL in any browser (you can use another device):")
-		fmt.Println()
-		fmt.Printf("  %s\n", loginResp.AuthURL)
-		fmt.Println()
-		fmt.Printf("Then enter the verification code: %s\n", loginResp.DisplayCode)
+	// Try to open a real GUI browser (skip terminal browsers)
+	if hasGUIBrowser() {
+		if err := browser.OpenURL(loginResp.AuthURL); err == nil {
+			fmt.Println("✓ Browser opened automatically.")
+		}
 	}
 
 	fmt.Println("Waiting for authorization...")
