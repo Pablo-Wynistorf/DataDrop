@@ -44,13 +44,30 @@ type UploadRequest struct {
 }
 
 type UploadResponse struct {
-	UploadURL        string  `json:"uploadUrl"`
-	FileID           string  `json:"fileId"`
-	S3Key            string  `json:"s3Key"`
-	CdnURL           *string `json:"cdnUrl"`
-	ExpiresAt        *string `json:"expiresAt"`
-	MaxDownloads     *int    `json:"maxDownloads"`
-	MaxFileSizeBytes int64   `json:"maxFileSizeBytes"`
+	UploadURL        string            `json:"uploadUrl"`
+	FileID           string            `json:"fileId"`
+	S3Key            string            `json:"s3Key"`
+	CdnURL           *string           `json:"cdnUrl"`
+	ExpiresAt        *string           `json:"expiresAt"`
+	MaxDownloads     *int              `json:"maxDownloads"`
+	MaxFileSizeBytes int64             `json:"maxFileSizeBytes"`
+	Multipart        *MultipartInfo    `json:"multipart"`
+}
+
+type MultipartInfo struct {
+	UploadID  string `json:"uploadId"`
+	PartCount int    `json:"partCount"`
+	PartSize  int64  `json:"partSize"`
+}
+
+type PartURLResponse struct {
+	UploadURL  string `json:"uploadUrl"`
+	PartNumber int    `json:"partNumber"`
+}
+
+type UploadPart struct {
+	PartNumber int    `json:"partNumber"`
+	ETag       string `json:"etag"`
 }
 
 type ShareRequest struct {
@@ -200,7 +217,9 @@ func (c *Client) UploadToS3(uploadURL string, file *os.File, fileSize int64, con
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = fileSize
 
-	resp, err := c.httpClient.Do(req)
+	// Use a client without timeout for large uploads
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -210,6 +229,79 @@ func (c *Client) UploadToS3(uploadURL string, file *os.File, fileSize int64, con
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("S3 upload failed: %s - %s", resp.Status, string(body))
 	}
+
+	return nil
+}
+
+func (c *Client) GetPartURL(fileID string, partNumber int) (*PartURLResponse, error) {
+	body := map[string]int{"partNumber": partNumber}
+	resp, err := c.doRequest("POST", "/upload/"+fileID+"/part", body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get part URL: %s - %s", resp.Status, string(body))
+	}
+
+	var result PartURLResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *Client) UploadPart(uploadURL string, data io.Reader, partSize int64) (string, error) {
+	req, err := http.NewRequest("PUT", uploadURL, data)
+	if err != nil {
+		return "", err
+	}
+
+	req.ContentLength = partSize
+
+	// Use a client without timeout for large uploads
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("part upload failed: %s - %s", resp.Status, string(body))
+	}
+
+	// Get ETag from response header
+	etag := resp.Header.Get("ETag")
+	return etag, nil
+}
+
+func (c *Client) CompleteMultipartUpload(fileID string, parts []UploadPart) error {
+	body := map[string]interface{}{"parts": parts}
+	resp, err := c.doRequest("POST", "/upload/"+fileID+"/complete", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to complete multipart upload: %s - %s", resp.Status, string(respBody))
+	}
+
+	return nil
+}
+
+func (c *Client) AbortMultipartUpload(fileID string) error {
+	resp, err := c.doRequest("POST", "/upload/"+fileID+"/abort", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
 
 	return nil
 }

@@ -1,9 +1,14 @@
 import { Router } from "express";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from "uuid";
+
+// 5GB threshold for multipart uploads
+const MULTIPART_THRESHOLD = 5 * 1024 * 1024 * 1024;
+// Part size: 100MB
+const PART_SIZE = 100 * 1024 * 1024;
 
 const router = Router();
 const s3Client = new S3Client({});
@@ -55,19 +60,37 @@ router.post("/", async (req, res) => {
     const bucket = isCdn ? CDN_BUCKET_NAME : BUCKET_NAME;
     const s3Key = isCdn ? `${fileId}/${fileName}` : `uploads/${fileId}/${fileName}`;
 
-    const command = new PutObjectCommand({
-      Bucket: bucket,
-      Key: s3Key,
-      ContentType: fileType,
-      ContentLength: fileSize
-    });
+    // For files > 5GB, use multipart upload
+    const useMultipart = fileSize > MULTIPART_THRESHOLD;
 
-    // Sign the content-length header to enforce file size at S3 level
-    // This prevents users from uploading larger files than declared
-    const uploadUrl = await getSignedUrl(s3Client, command, { 
-      expiresIn: 3600,
-      signableHeaders: new Set(['content-length', 'content-type', 'host'])
-    });
+    let uploadUrl = null;
+    let multipartUploadId = null;
+    let partCount = null;
+
+    if (useMultipart) {
+      // Initiate multipart upload
+      const createCommand = new CreateMultipartUploadCommand({
+        Bucket: bucket,
+        Key: s3Key,
+        ContentType: fileType
+      });
+      const multipartResult = await s3Client.send(createCommand);
+      multipartUploadId = multipartResult.UploadId;
+      partCount = Math.ceil(fileSize / PART_SIZE);
+    } else {
+      const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: s3Key,
+        ContentType: fileType,
+        ContentLength: fileSize
+      });
+
+      // Sign the content-length header to enforce file size at S3 level
+      uploadUrl = await getSignedUrl(s3Client, command, { 
+        expiresIn: 3600,
+        signableHeaders: new Set(['content-length', 'content-type', 'host'])
+      });
+    }
 
     // For CDN files, generate the public URL
     const cdnUrl = isCdn ? `${CDN_URL}/${fileId}/${encodeURIComponent(fileName)}` : null;
@@ -116,6 +139,13 @@ router.post("/", async (req, res) => {
       downloadCount: 0
     };
 
+    // Add multipart info if applicable
+    if (useMultipart) {
+      item.multipartUploadId = multipartUploadId;
+      item.partCount = partCount;
+      item.partSize = PART_SIZE;
+    }
+
     // Add TTL and expiry for private files
     if (!isCdn) {
       item.ttl = ttl;
@@ -137,10 +167,180 @@ router.post("/", async (req, res) => {
       cdnUrl,
       expiresAt: fileExpiresAt,
       maxDownloads: downloadLimit,
-      maxFileSizeBytes: req.user.maxFileSizeBytes
+      maxFileSizeBytes: req.user.maxFileSizeBytes,
+      multipart: useMultipart ? {
+        uploadId: multipartUploadId,
+        partCount,
+        partSize: PART_SIZE
+      } : null
     });
   } catch (error) {
     console.error("Upload error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get presigned URL for a multipart upload part
+router.post("/:fileId/part", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { partNumber } = req.body;
+
+    if (!partNumber || partNumber < 1) {
+      return res.status(400).json({ error: "Invalid partNumber" });
+    }
+
+    // Get file info from DynamoDB
+    const result = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!result.Item) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const file = result.Item;
+
+    // Verify ownership
+    if (file.userId !== req.user.userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Verify this is a multipart upload
+    if (!file.multipartUploadId) {
+      return res.status(400).json({ error: "Not a multipart upload" });
+    }
+
+    // Verify part number is valid
+    if (partNumber > file.partCount) {
+      return res.status(400).json({ error: "Part number exceeds total parts" });
+    }
+
+    // Generate presigned URL for this part
+    const command = new UploadPartCommand({
+      Bucket: file.bucket,
+      Key: file.s3Key,
+      UploadId: file.multipartUploadId,
+      PartNumber: partNumber
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    res.json({ uploadUrl, partNumber });
+  } catch (error) {
+    console.error("Part URL error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Complete multipart upload
+router.post("/:fileId/complete", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { parts } = req.body; // Array of { partNumber, etag }
+
+    if (!parts || !Array.isArray(parts) || parts.length === 0) {
+      return res.status(400).json({ error: "Missing parts array" });
+    }
+
+    // Get file info from DynamoDB
+    const result = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!result.Item) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const file = result.Item;
+
+    // Verify ownership
+    if (file.userId !== req.user.userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Verify this is a multipart upload
+    if (!file.multipartUploadId) {
+      return res.status(400).json({ error: "Not a multipart upload" });
+    }
+
+    // Complete the multipart upload
+    const command = new CompleteMultipartUploadCommand({
+      Bucket: file.bucket,
+      Key: file.s3Key,
+      UploadId: file.multipartUploadId,
+      MultipartUpload: {
+        Parts: parts.map(p => ({
+          PartNumber: p.partNumber,
+          ETag: p.etag
+        }))
+      }
+    });
+
+    await s3Client.send(command);
+
+    // Update file status
+    await docClient.send(new UpdateCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId },
+      UpdateExpression: "SET #status = :status REMOVE multipartUploadId, partCount, partSize",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":status": "ready" }
+    }));
+
+    res.json({ success: true, fileId });
+  } catch (error) {
+    console.error("Complete multipart error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Abort multipart upload
+router.post("/:fileId/abort", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    // Get file info from DynamoDB
+    const result = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!result.Item) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const file = result.Item;
+
+    // Verify ownership
+    if (file.userId !== req.user.userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Abort the multipart upload if it exists
+    if (file.multipartUploadId) {
+      const command = new AbortMultipartUploadCommand({
+        Bucket: file.bucket,
+        Key: file.s3Key,
+        UploadId: file.multipartUploadId
+      });
+      await s3Client.send(command);
+    }
+
+    // Update file status
+    await docClient.send(new UpdateCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId },
+      UpdateExpression: "SET #status = :status",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: { ":status": "aborted" }
+    }));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Abort multipart error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

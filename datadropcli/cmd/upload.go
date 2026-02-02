@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -101,14 +102,24 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get upload URL: %w", err)
 	}
 
-	// Upload to S3
-	if err := client.UploadToS3(uploadResp.UploadURL, file, fileSize, contentType); err != nil {
-		return fmt.Errorf("upload failed: %w", err)
-	}
+	// Check if multipart upload is needed
+	if uploadResp.Multipart != nil {
+		// Multipart upload for large files
+		if err := doMultipartUpload(client, uploadResp, file, fileSize); err != nil {
+			// Try to abort on failure
+			client.AbortMultipartUpload(uploadResp.FileID)
+			return fmt.Errorf("upload failed: %w", err)
+		}
+	} else {
+		// Single PUT upload for smaller files
+		if err := client.UploadToS3(uploadResp.UploadURL, file, fileSize, contentType); err != nil {
+			return fmt.Errorf("upload failed: %w", err)
+		}
 
-	// Confirm upload
-	if err := client.ConfirmUpload(uploadResp.FileID); err != nil {
-		return fmt.Errorf("failed to confirm upload: %w", err)
+		// Confirm upload
+		if err := client.ConfirmUpload(uploadResp.FileID); err != nil {
+			return fmt.Errorf("failed to confirm upload: %w", err)
+		}
 	}
 
 	fmt.Println("\n✓ Upload complete!")
@@ -140,4 +151,56 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func doMultipartUpload(client *api.Client, uploadResp *api.UploadResponse, file *os.File, fileSize int64) error {
+	mp := uploadResp.Multipart
+	fmt.Printf("Using multipart upload (%d parts of %s each)\n", mp.PartCount, formatSize(mp.PartSize))
+
+	parts := make([]api.UploadPart, 0, mp.PartCount)
+
+	for partNum := 1; partNum <= mp.PartCount; partNum++ {
+		// Calculate part size (last part may be smaller)
+		offset := int64(partNum-1) * mp.PartSize
+		partSize := mp.PartSize
+		if offset+partSize > fileSize {
+			partSize = fileSize - offset
+		}
+
+		fmt.Printf("\r  Uploading part %d/%d (%s)...", partNum, mp.PartCount, formatSize(partSize))
+
+		// Get presigned URL for this part
+		partResp, err := client.GetPartURL(uploadResp.FileID, partNum)
+		if err != nil {
+			return fmt.Errorf("failed to get part %d URL: %w", partNum, err)
+		}
+
+		// Seek to the correct position
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to seek: %w", err)
+		}
+
+		// Create a limited reader for this part
+		partReader := io.LimitReader(file, partSize)
+
+		// Upload the part
+		etag, err := client.UploadPart(partResp.UploadURL, partReader, partSize)
+		if err != nil {
+			return fmt.Errorf("failed to upload part %d: %w", partNum, err)
+		}
+
+		parts = append(parts, api.UploadPart{
+			PartNumber: partNum,
+			ETag:       etag,
+		})
+	}
+
+	fmt.Println("\n  Completing upload...")
+
+	// Complete the multipart upload
+	if err := client.CompleteMultipartUpload(uploadResp.FileID, parts); err != nil {
+		return fmt.Errorf("failed to complete multipart upload: %w", err)
+	}
+
+	return nil
 }

@@ -404,38 +404,45 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
       throw new Error(errorMsg);
     }
 
-    const { uploadUrl, fileId, cdnUrl } = await res.json();
+    const uploadData = await res.json();
+    const { uploadUrl, fileId, cdnUrl, multipart } = uploadData;
 
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          percent.textContent = `${pct}%`;
-          bar.style.width = `${pct}%`;
-        }
+    if (multipart) {
+      // Multipart upload for large files (>5GB)
+      await doMultipartUpload(file, fileId, multipart, percent, bar);
+    } else {
+      // Single PUT upload for smaller files
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            percent.textContent = `${pct}%`;
+            bar.style.width = `${pct}%`;
+          }
+        });
+        xhr.addEventListener("load", () => {
+          if (xhr.status === 200) {
+            resolve();
+          } else {
+            console.error("S3 upload failed:", xhr.status, xhr.responseText);
+            reject(new Error(`Upload failed: ${xhr.status}`));
+          }
+        });
+        xhr.addEventListener("error", (e) => {
+          console.error("XHR error:", e);
+          reject(new Error("Network error during upload"));
+        });
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.send(file);
       });
-      xhr.addEventListener("load", () => {
-        if (xhr.status === 200) {
-          resolve();
-        } else {
-          console.error("S3 upload failed:", xhr.status, xhr.responseText);
-          reject(new Error(`Upload failed: ${xhr.status}`));
-        }
-      });
-      xhr.addEventListener("error", (e) => {
-        console.error("XHR error:", e);
-        reject(new Error("Network error during upload"));
-      });
-      xhr.open("PUT", uploadUrl);
-      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-      xhr.send(file);
-    });
 
-    await fetch(`${API_URL}/files/${fileId}/confirm`, {
-      method: "POST",
-      credentials: "include"
-    });
+      await fetch(`${API_URL}/files/${fileId}/confirm`, {
+        method: "POST",
+        credentials: "include"
+      });
+    }
 
     progress.classList.add("hidden");
     document.getElementById("file-input").value = "";
@@ -456,6 +463,75 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
     console.error("Upload failed:", error);
     showToast(error.message, "error", 8000);
     progress.classList.add("hidden");
+  }
+}
+
+async function doMultipartUpload(file, fileId, multipart, percentEl, barEl) {
+  const { partCount, partSize } = multipart;
+  const parts = [];
+  let totalUploaded = 0;
+
+  for (let partNum = 1; partNum <= partCount; partNum++) {
+    const start = (partNum - 1) * partSize;
+    const end = Math.min(start + partSize, file.size);
+    const partBlob = file.slice(start, end);
+    const currentPartSize = end - start;
+
+    // Get presigned URL for this part
+    const partRes = await fetch(`${API_URL}/upload/${fileId}/part`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ partNumber: partNum })
+    });
+
+    if (!partRes.ok) {
+      throw new Error(`Failed to get URL for part ${partNum}`);
+    }
+
+    const { uploadUrl } = await partRes.json();
+
+    // Upload the part with progress tracking
+    const etag = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          const partProgress = totalUploaded + e.loaded;
+          const pct = Math.round((partProgress / file.size) * 100);
+          percentEl.textContent = `${pct}% (part ${partNum}/${partCount})`;
+          barEl.style.width = `${pct}%`;
+        }
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status === 200) {
+          const etag = xhr.getResponseHeader("ETag");
+          resolve(etag);
+        } else {
+          reject(new Error(`Part ${partNum} upload failed: ${xhr.status}`));
+        }
+      });
+      xhr.addEventListener("error", () => {
+        reject(new Error(`Network error uploading part ${partNum}`));
+      });
+      xhr.open("PUT", uploadUrl);
+      xhr.send(partBlob);
+    });
+
+    totalUploaded += currentPartSize;
+    parts.push({ partNumber: partNum, etag });
+  }
+
+  // Complete the multipart upload
+  percentEl.textContent = "Completing...";
+  const completeRes = await fetch(`${API_URL}/upload/${fileId}/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ parts })
+  });
+
+  if (!completeRes.ok) {
+    throw new Error("Failed to complete multipart upload");
   }
 }
 
