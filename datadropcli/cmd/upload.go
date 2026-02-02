@@ -247,7 +247,7 @@ func formatSpeed(bytesPerSec float64) string {
 
 func printProgressBar(current, total int64, pt *progressTracker, suffix string) {
 	percent := float64(current) / float64(total) * 100
-	filled := int(float64(progressBarWidth) * current / total)
+	filled := int(float64(progressBarWidth) * float64(current) / float64(total))
 	
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", progressBarWidth-filled)
 	
