@@ -64,22 +64,30 @@ func Login(apiEndpoint string) (*AuthResult, error) {
 		return nil, fmt.Errorf("failed to parse login response: %w", err)
 	}
 
-	// Step 2: Show code and open browser
+	// Step 2: Show code and try to open browser
 	fmt.Println()
 	fmt.Println("┌─────────────────────────────────────────┐")
 	fmt.Println("│         DataDrop CLI Login              │")
 	fmt.Println("├─────────────────────────────────────────┤")
 	fmt.Printf("│  Verification code: %s            │\n", loginResp.DisplayCode)
-	fmt.Println("│                                         │")
-	fmt.Println("│  A browser window will open.            │")
-	fmt.Println("│  Please log in and authorize the CLI.   │")
 	fmt.Println("└─────────────────────────────────────────┘")
 	fmt.Println()
 
-	// Open browser
-	if err := browser.OpenURL(loginResp.AuthURL); err != nil {
-		fmt.Printf("Could not open browser automatically.\n")
-		fmt.Printf("Please visit: %s\n", loginResp.AuthURL)
+	// Try to open browser
+	browserOpened := false
+	if err := browser.OpenURL(loginResp.AuthURL); err == nil {
+		browserOpened = true
+		fmt.Println("✓ Browser opened. Please log in and authorize the CLI.")
+	}
+
+	if !browserOpened {
+		fmt.Println("Could not open browser automatically.")
+		fmt.Println()
+		fmt.Println("Open this URL in any browser (you can use another device):")
+		fmt.Println()
+		fmt.Printf("  %s\n", loginResp.AuthURL)
+		fmt.Println()
+		fmt.Printf("Then enter the verification code: %s\n", loginResp.DisplayCode)
 	}
 
 	fmt.Println("Waiting for authorization...")
