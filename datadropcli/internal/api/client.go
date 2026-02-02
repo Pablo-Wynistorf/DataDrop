@@ -18,19 +18,26 @@ type ProgressFunc func(uploaded, total int64)
 
 // progressReader wraps an io.Reader to track progress
 type progressReader struct {
-	reader     io.Reader
-	total      int64
-	uploaded   int64
-	onProgress ProgressFunc
+	reader       io.Reader
+	total        int64
+	uploaded     int64
+	onProgress   ProgressFunc
+	lastCallback time.Time
 }
 
 func (pr *progressReader) Read(p []byte) (int, error) {
 	n, err := pr.reader.Read(p)
 	if n > 0 {
 		pr.uploaded += int64(n)
-		if pr.onProgress != nil {
+		// Only call progress callback every 100ms to avoid slowing down uploads
+		if pr.onProgress != nil && time.Since(pr.lastCallback) > 100*time.Millisecond {
 			pr.onProgress(pr.uploaded, pr.total)
+			pr.lastCallback = time.Now()
 		}
+	}
+	// Final callback on EOF
+	if err == io.EOF && pr.onProgress != nil {
+		pr.onProgress(pr.uploaded, pr.total)
 	}
 	return n, err
 }
