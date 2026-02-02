@@ -205,4 +205,12 @@ resource "aws_cloudfront_response_headers_policy" "cdn_files" {
       override = false
     }
   }
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      value    = "no-cache, must-revalidate"
+      override = true
+    }
+  }
 }
