@@ -115,7 +115,6 @@ resource "aws_s3_object" "lambda_api_object" {
   bucket       = aws_s3_bucket.lambda_api_artifacts.id
   key          = "lambda/${data.archive_file.lambda_api_zip.output_base64sha256}.zip"
   source       = data.archive_file.lambda_api_zip.output_path
-  source_hash  = filemd5(data.archive_file.lambda_api_zip.output_path)
   content_type = "application/zip"
 }
 
