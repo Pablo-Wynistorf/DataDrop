@@ -357,17 +357,83 @@ function getDownloadLimitDisplay(file) {
   return `<span class="${urgencyClass}">📥 ${remaining}/${file.maxDownloads} downloads left</span>`;
 }
 
+// Upload progress tracker for speed and ETA calculation
+class UploadTracker {
+  constructor(totalSize) {
+    this.totalSize = totalSize;
+    this.startTime = Date.now();
+    this.lastTime = Date.now();
+    this.lastLoaded = 0;
+    this.speedSamples = [];
+  }
+
+  update(loaded) {
+    const now = Date.now();
+    const elapsed = now - this.lastTime;
+    
+    if (elapsed > 200) { // Update every 200ms
+      const bytesDiff = loaded - this.lastLoaded;
+      const speed = bytesDiff / (elapsed / 1000);
+      
+      this.speedSamples.push(speed);
+      if (this.speedSamples.length > 10) {
+        this.speedSamples.shift();
+      }
+      
+      this.lastTime = now;
+      this.lastLoaded = loaded;
+    }
+    
+    return this.getStats(loaded);
+  }
+
+  getStats(loaded) {
+    const avgSpeed = this.speedSamples.length > 0 
+      ? this.speedSamples.reduce((a, b) => a + b, 0) / this.speedSamples.length 
+      : 0;
+    
+    const remaining = this.totalSize - loaded;
+    const eta = avgSpeed > 0 ? remaining / avgSpeed : 0;
+    
+    return { speed: avgSpeed, eta };
+  }
+}
+
+function formatSpeed(bytesPerSec) {
+  if (bytesPerSec < 1024) return `${Math.round(bytesPerSec)} B/s`;
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  if (bytesPerSec < 1024 * 1024 * 1024) return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  return `${(bytesPerSec / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
+}
+
+function formatETA(seconds) {
+  if (seconds <= 0 || !isFinite(seconds)) return '--:--';
+  
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}:${s.toString().padStart(2, '0')}`;
+  return `0:${s.toString().padStart(2, '0')}`;
+}
 
 async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDownloads) {
   const progress = document.getElementById("upload-progress");
   const filename = document.getElementById("upload-filename");
   const percent = document.getElementById("upload-percent");
+  const speedEl = document.getElementById("upload-speed");
+  const etaEl = document.getElementById("upload-eta");
   const bar = document.getElementById("upload-bar");
 
   progress.classList.remove("hidden");
   filename.textContent = file.name;
   percent.textContent = "0%";
+  speedEl.textContent = "";
+  etaEl.textContent = "";
   bar.style.width = "0%";
+
+  const tracker = new UploadTracker(file.size);
 
   try {
     const body = {
@@ -409,7 +475,7 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
 
     if (multipart) {
       // Multipart upload for large files (>5GB)
-      await doMultipartUpload(file, fileId, multipart, percent, bar);
+      await doMultipartUpload(file, fileId, multipart, percent, bar, speedEl, etaEl, tracker);
     } else {
       // Single PUT upload for smaller files
       await new Promise((resolve, reject) => {
@@ -419,6 +485,10 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
             const pct = Math.round((e.loaded / e.total) * 100);
             percent.textContent = `${pct}%`;
             bar.style.width = `${pct}%`;
+            
+            const { speed, eta } = tracker.update(e.loaded);
+            speedEl.textContent = formatSpeed(speed);
+            etaEl.textContent = `ETA ${formatETA(eta)}`;
           }
         });
         xhr.addEventListener("load", () => {
@@ -466,7 +536,7 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
   }
 }
 
-async function doMultipartUpload(file, fileId, multipart, percentEl, barEl) {
+async function doMultipartUpload(file, fileId, multipart, percentEl, barEl, speedEl, etaEl, tracker) {
   const { partCount, partSize } = multipart;
   const parts = [];
   let totalUploaded = 0;
@@ -498,8 +568,12 @@ async function doMultipartUpload(file, fileId, multipart, percentEl, barEl) {
         if (e.lengthComputable) {
           const partProgress = totalUploaded + e.loaded;
           const pct = Math.round((partProgress / file.size) * 100);
-          percentEl.textContent = `${pct}% (part ${partNum}/${partCount})`;
+          percentEl.textContent = `${pct}%`;
           barEl.style.width = `${pct}%`;
+          
+          const { speed, eta } = tracker.update(partProgress);
+          speedEl.textContent = formatSpeed(speed);
+          etaEl.textContent = `ETA ${formatETA(eta)} (part ${partNum}/${partCount})`;
         }
       });
       xhr.addEventListener("load", () => {

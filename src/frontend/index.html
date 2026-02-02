@@ -49,6 +49,16 @@
     ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.5); }
     .animate-float { animation: float 6s ease-in-out infinite; }
     @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+    /* Mobile-first responsive adjustments */
+    @media (max-width: 640px) {
+      .file-row { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+      .file-row > div:last-child { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+      .upload-type-btn { padding: 0.75rem; }
+      .upload-type-btn p { display: none; }
+    }
+    /* Modal close on backdrop click */
+    .modal-backdrop { cursor: pointer; }
+    .modal-content { cursor: default; }
   </style>
 </head>
 <body class="gradient-bg min-h-screen text-gray-100">
@@ -95,24 +105,24 @@
     <!-- Main View -->
     <div id="main-view" class="hidden">
       <!-- Header -->
-      <div class="flex justify-between items-center mb-8">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div class="flex items-center gap-4">
           <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
             </svg>
           </div>
-          <h1 class="text-2xl font-bold text-white">My Files</h1>
+          <h1 class="text-xl sm:text-2xl font-bold text-white">My Files</h1>
         </div>
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
           <button onclick="openCLIModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 transition" title="Download CLI">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
             </svg>
-            CLI
+            <span class="hidden sm:inline">CLI</span>
           </button>
-          <span id="user-name" class="text-gray-400"></span>
-          <button onclick="logout()" class="text-red-400 hover:text-red-300 transition font-medium">Logout</button>
+          <span id="user-name" class="text-gray-400 text-sm sm:text-base truncate max-w-[120px] sm:max-w-none"></span>
+          <button onclick="logout()" class="text-red-400 hover:text-red-300 transition font-medium text-sm sm:text-base">Logout</button>
         </div>
       </div>
 
@@ -219,9 +229,13 @@
         </div>
         
         <div id="upload-progress" class="hidden mt-6">
-          <div class="flex justify-between text-sm text-gray-400 mb-2">
-            <span id="upload-filename"></span>
-            <span id="upload-percent">0%</span>
+          <div class="flex flex-col sm:flex-row justify-between text-sm text-gray-400 mb-2 gap-1">
+            <span id="upload-filename" class="truncate"></span>
+            <div class="flex gap-3 text-xs sm:text-sm">
+              <span id="upload-speed" class="text-indigo-400"></span>
+              <span id="upload-eta" class="text-gray-500"></span>
+              <span id="upload-percent">0%</span>
+            </div>
           </div>
           <div class="w-full bg-gray-700/50 rounded-full h-2 overflow-hidden">
             <div id="upload-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full transition-all" style="width: 0%"></div>
@@ -512,9 +526,16 @@
     </div>
 
     <!-- CLI Download Modal -->
-    <div id="cli-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-      <div class="glass rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4 glow-border max-h-[90vh] overflow-y-auto">
-        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+    <div id="cli-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" onclick="if(event.target === this) closeCLIModal()">
+      <div class="glass rounded-2xl shadow-2xl p-4 sm:p-6 w-full max-w-lg mx-4 glow-border max-h-[90vh] overflow-y-auto modal-content relative">
+        <!-- Close button -->
+        <button onclick="closeCLIModal()" class="absolute top-4 right-4 text-gray-400 hover:text-white transition p-1" title="Close">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+        
+        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2 pr-8">
           <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
           </svg>
@@ -527,7 +548,7 @@
         <div class="mb-6">
           <h4 class="text-sm font-medium text-gray-300 mb-3">Install (macOS / Linux)</h4>
           <div class="glass-light rounded-xl p-4 relative">
-            <code id="cli-install-cmd" class="text-green-400 text-sm font-mono break-all"></code>
+            <code id="cli-install-cmd" class="text-green-400 text-xs sm:text-sm font-mono break-all pr-8"></code>
             <button onclick="copyInstallCmd()" class="absolute top-3 right-3 text-gray-400 hover:text-white transition p-1" title="Copy">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
@@ -540,9 +561,9 @@
         <!-- Quick Start -->
         <div class="mb-6">
           <h4 class="text-sm font-medium text-gray-300 mb-3">Quick Start</h4>
-          <div class="glass-light rounded-xl p-4 font-mono text-sm space-y-2">
+          <div class="glass-light rounded-xl p-4 font-mono text-xs sm:text-sm space-y-2 overflow-x-auto">
             <p class="text-gray-400"># Login to DataDrop</p>
-            <p class="text-green-400">datadrop login --api <span id="cli-api-url" class="text-indigo-400"></span></p>
+            <p class="text-green-400 whitespace-nowrap">datadrop login --api <span id="cli-api-url" class="text-indigo-400"></span></p>
             <p class="text-gray-400 mt-3"># Upload a file</p>
             <p class="text-green-400">datadrop upload myfile.txt</p>
             <p class="text-gray-400 mt-3"># List your files</p>
@@ -553,21 +574,17 @@
         </div>
 
         <!-- All Commands -->
-        <div class="mb-6">
+        <div class="mb-2">
           <h4 class="text-sm font-medium text-gray-300 mb-3">Commands</h4>
-          <div class="glass-light rounded-xl p-4 text-sm space-y-2">
-            <div class="flex justify-between"><span class="text-indigo-400">login</span><span class="text-gray-500">Authenticate with DataDrop</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">logout</span><span class="text-gray-500">Remove stored credentials</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">status</span><span class="text-gray-500">Show login status</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">upload</span><span class="text-gray-500">Upload a file</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">list</span><span class="text-gray-500">List all files</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">get-url</span><span class="text-gray-500">Get shareable URL</span></div>
-            <div class="flex justify-between"><span class="text-indigo-400">delete</span><span class="text-gray-500">Delete a file</span></div>
+          <div class="glass-light rounded-xl p-4 text-xs sm:text-sm space-y-2">
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">login</span><span class="text-gray-500 text-right">Authenticate with DataDrop</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">logout</span><span class="text-gray-500 text-right">Remove stored credentials</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">status</span><span class="text-gray-500 text-right">Show login status</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">upload</span><span class="text-gray-500 text-right">Upload a file</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">list</span><span class="text-gray-500 text-right">List all files</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">get-url</span><span class="text-gray-500 text-right">Get shareable URL</span></div>
+            <div class="flex justify-between gap-2"><span class="text-indigo-400">delete</span><span class="text-gray-500 text-right">Delete a file</span></div>
           </div>
-        </div>
-
-        <div class="flex justify-end">
-          <button onclick="closeCLIModal()" class="px-4 py-2 text-gray-400 hover:text-gray-200 transition">Close</button>
         </div>
       </div>
     </div>
