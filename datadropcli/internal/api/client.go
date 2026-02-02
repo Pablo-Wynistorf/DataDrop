@@ -13,6 +13,28 @@ import (
 	"github.com/datadrop/cli/internal/config"
 )
 
+// ProgressFunc is called with bytes uploaded and total bytes
+type ProgressFunc func(uploaded, total int64)
+
+// progressReader wraps an io.Reader to track progress
+type progressReader struct {
+	reader     io.Reader
+	total      int64
+	uploaded   int64
+	onProgress ProgressFunc
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	if n > 0 {
+		pr.uploaded += int64(n)
+		if pr.onProgress != nil {
+			pr.onProgress(pr.uploaded, pr.total)
+		}
+	}
+	return n, err
+}
+
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -208,8 +230,14 @@ func (c *Client) ConfirmUpload(fileID string) error {
 	return nil
 }
 
-func (c *Client) UploadToS3(uploadURL string, file *os.File, fileSize int64, contentType string) error {
-	req, err := http.NewRequest("PUT", uploadURL, file)
+func (c *Client) UploadToS3(uploadURL string, file *os.File, fileSize int64, contentType string, onProgress ProgressFunc) error {
+	pr := &progressReader{
+		reader:     file,
+		total:      fileSize,
+		onProgress: onProgress,
+	}
+
+	req, err := http.NewRequest("PUT", uploadURL, pr)
 	if err != nil {
 		return err
 	}
@@ -254,8 +282,14 @@ func (c *Client) GetPartURL(fileID string, partNumber int) (*PartURLResponse, er
 	return &result, nil
 }
 
-func (c *Client) UploadPart(uploadURL string, data io.Reader, partSize int64) (string, error) {
-	req, err := http.NewRequest("PUT", uploadURL, data)
+func (c *Client) UploadPart(uploadURL string, data io.Reader, partSize int64, onProgress ProgressFunc) (string, error) {
+	pr := &progressReader{
+		reader:     data,
+		total:      partSize,
+		onProgress: onProgress,
+	}
+
+	req, err := http.NewRequest("PUT", uploadURL, pr)
 	if err != nil {
 		return "", err
 	}
