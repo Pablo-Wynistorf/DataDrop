@@ -599,17 +599,7 @@ async function uploadFile(file, uploadType, expiresInSeconds, expiresAt, maxDown
     document.getElementById("folder-input").value = "";
     loadFiles();
 
-    if (uploadType === "cdn" && cdnUrl) {
-      showToast("File uploaded successfully!", "success");
-      setTimeout(() => {
-        loadFiles().then(() => {
-          const file = { id: fileId, uploadType: "cdn", cdnUrl };
-          openShareModal(file);
-        });
-      }, 500);
-    } else {
-      showToast("File uploaded successfully!", "success");
-    }
+    showToast("File uploaded successfully!", "success");
   } catch (error) {
     console.error("Upload failed:", error);
     showToast(error.message, "error", 8000);
