@@ -2,7 +2,6 @@
 set -e
 
 # DataDrop CLI Installer
-# Usage: curl -fsSL https://your-domain.com/install.sh | bash
 
 GITHUB_REPO="pablo-wynistorf/datadrop"
 INSTALL_DIR="/usr/local/bin"

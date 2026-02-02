@@ -32,3 +32,15 @@ variable "jwt_secret" {
   sensitive   = true
   default     = ""
 }
+
+variable "domain_name" {
+  description = "Custom domain name for the frontend (e.g., datadrop.example.com). Leave empty to use CloudFront default domain."
+  type        = string
+  default     = ""
+}
+
+variable "acm_certificate_arn" {
+  description = "ARN of ACM certificate for custom domain. Required if domain_name is set."
+  type        = string
+  default     = ""
+}

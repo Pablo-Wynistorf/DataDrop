@@ -149,3 +149,11 @@ resource "aws_s3_object" "frontend_favicon" {
   content_type = "image/svg+xml"
   etag         = filemd5("${path.module}/../src/frontend/favicon.svg")
 }
+
+resource "aws_s3_object" "frontend_install_sh" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "install.sh"
+  source       = "${path.module}/../src/frontend/install.sh"
+  content_type = "text/x-shellscript"
+  etag         = filemd5("${path.module}/../src/frontend/install.sh")
+}

@@ -103,14 +103,14 @@ resource "aws_lambda_function" "api" {
     variables = {
       BUCKET_NAME            = aws_s3_bucket.files.id
       CDN_BUCKET_NAME        = aws_s3_bucket.cdn_files.id
-      CDN_URL                = "https://${aws_cloudfront_distribution.main.domain_name}/cdn"
+      CDN_URL                = "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.main.domain_name}/cdn"
       FILES_TABLE            = aws_dynamodb_table.files.name
       SESSIONS_TABLE         = aws_dynamodb_table.sessions.name
       OIDC_ISSUER            = var.oidc_issuer
       OIDC_CLIENT_ID         = var.oidc_client_id
       OIDC_CLIENT_SECRET     = var.oidc_client_secret
-      REDIRECT_URI           = "https://${aws_cloudfront_distribution.main.domain_name}/api/auth/callback"
-      FRONTEND_URL           = "https://${aws_cloudfront_distribution.main.domain_name}"
+      REDIRECT_URI           = "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.main.domain_name}/api/auth/callback"
+      FRONTEND_URL           = "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.main.domain_name}"
       JWT_SECRET             = var.jwt_secret
       FILE_DELETION_QUEUE_URL = aws_sqs_queue.file_deletion.url
     }
