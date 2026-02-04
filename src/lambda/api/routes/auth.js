@@ -15,11 +15,23 @@ const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET;
 const OIDC_ISSUER = process.env.OIDC_ISSUER;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 const FRONTEND_URL = process.env.FRONTEND_URL;
-const JWT_SECRET = process.env.JWT_SECRET || "default-secret-change-me";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Cache OIDC discovery document to avoid fetching on every request
+let oidcConfigCache = null;
+let oidcConfigCacheTime = 0;
+const OIDC_CONFIG_CACHE_TTL = 3600000; // 1 hour
 
 async function getOIDCConfig() {
+  const now = Date.now();
+  if (oidcConfigCache && now - oidcConfigCacheTime < OIDC_CONFIG_CACHE_TTL) {
+    return oidcConfigCache;
+  }
+  
   const res = await fetch(`${OIDC_ISSUER}/.well-known/openid-configuration`);
-  return res.json();
+  oidcConfigCache = await res.json();
+  oidcConfigCacheTime = now;
+  return oidcConfigCache;
 }
 
 function getCookieOptions() {

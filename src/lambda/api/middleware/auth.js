@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 
 const OIDC_ISSUER = process.env.OIDC_ISSUER;
 const OIDC_CLIENT_ID = process.env.OIDC_CLIENT_ID;
-const JWT_SECRET = process.env.JWT_SECRET || "default-secret-change-me";
+const JWT_SECRET = process.env.JWT_SECRET;
 const DEFAULT_MAX_FILE_SIZE_GB = 1;
 
+// Cache JWKS keys directly to avoid repeated network calls
+// jose.createRemoteJWKSet fetches on every verification, so we cache the keys ourselves
 let jwksCache = null;
 let jwksCacheTime = 0;
 const JWKS_CACHE_TTL = 3600000; // 1 hour
@@ -16,7 +18,13 @@ async function getJWKS() {
     return jwksCache;
   }
   
-  jwksCache = jose.createRemoteJWKSet(new URL(`${OIDC_ISSUER}/.well-known/jwks.json`));
+  // Fetch JWKS keys directly and cache them
+  const jwksUrl = `${OIDC_ISSUER}/.well-known/jwks.json`;
+  const response = await fetch(jwksUrl);
+  const jwksData = await response.json();
+  
+  // Create a local key set from the fetched keys (no further network calls)
+  jwksCache = jose.createLocalJWKSet(jwksData);
   jwksCacheTime = now;
   return jwksCache;
 }
