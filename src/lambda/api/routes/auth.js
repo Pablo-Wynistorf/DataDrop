@@ -114,7 +114,7 @@ router.get("/callback", async (req, res) => {
       return res.status(400).json({ error: "Token exchange failed" });
     }
 
-    res.cookie("session", tokens.access_token, getCookieOptions());
+    res.cookie("access_token", tokens.access_token, getCookieOptions());
 
     if (tokens.id_token) {
       res.cookie("id_token", tokens.id_token, getCookieOptions());
@@ -148,7 +148,7 @@ router.get("/verify", requireAuth, async (req, res) => {
 });
 
 router.post("/logout", (_req, res) => {
-  res.clearCookie("session", { path: "/" });
+  res.clearCookie("access_token", { path: "/" });
   res.clearCookie("id_token", { path: "/" });
   res.clearCookie("refresh_token", { path: "/" });
   res.json({ success: true });
@@ -175,12 +175,12 @@ router.post("/refresh", async (req, res) => {
 
     const tokens = await tokenRes.json();
     if (!tokens.access_token) {
-      res.clearCookie("session", { path: "/" });
+      res.clearCookie("access_token", { path: "/" });
       res.clearCookie("refresh_token", { path: "/" });
       return res.status(401).json({ error: "Refresh failed, please login again" });
     }
 
-    res.cookie("session", tokens.access_token, getCookieOptions());
+    res.cookie("access_token", tokens.access_token, getCookieOptions());
 
     if (tokens.id_token) {
       res.cookie("id_token", tokens.id_token, getCookieOptions());

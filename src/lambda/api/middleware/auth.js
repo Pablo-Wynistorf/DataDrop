@@ -150,7 +150,7 @@ export async function requireAuth(req, res, next) {
     }
   }
 
-  const accessToken = req.cookies?.session;
+  const accessToken = req.cookies?.access_token;
 
   if (!accessToken) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -175,7 +175,7 @@ export async function requireAuth(req, res, next) {
             issuer: OIDC_ISSUER,
           });
 
-          res.cookie("session", tokens.access_token, {
+          res.cookie("access_token", tokens.access_token, {
             ...getCookieOptions(),
             maxAge: 24 * 60 * 60 * 1000,
           });
