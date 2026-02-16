@@ -114,8 +114,11 @@ router.get("/callback", async (req, res) => {
       return res.status(400).json({ error: "Token exchange failed" });
     }
 
-    // Set access_token as the session cookie
     res.cookie("session", tokens.access_token, getCookieOptions());
+
+    if (tokens.id_token) {
+      res.cookie("id_token", tokens.id_token, getCookieOptions());
+    }
 
     if (tokens.refresh_token) {
       res.cookie("refresh_token", tokens.refresh_token, {
@@ -146,11 +149,11 @@ router.get("/verify", requireAuth, async (req, res) => {
 
 router.post("/logout", (_req, res) => {
   res.clearCookie("session", { path: "/" });
+  res.clearCookie("id_token", { path: "/" });
   res.clearCookie("refresh_token", { path: "/" });
   res.json({ success: true });
 });
 
-// Refresh the session using the refresh_token cookie
 router.post("/refresh", async (req, res) => {
   const refreshToken = req.cookies?.refresh_token;
   if (!refreshToken) {
@@ -177,10 +180,12 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ error: "Refresh failed, please login again" });
     }
 
-    // Update cookies with fresh tokens
     res.cookie("session", tokens.access_token, getCookieOptions());
 
-    // Some providers rotate refresh tokens
+    if (tokens.id_token) {
+      res.cookie("id_token", tokens.id_token, getCookieOptions());
+    }
+
     if (tokens.refresh_token) {
       res.cookie("refresh_token", tokens.refresh_token, {
         ...getCookieOptions(),

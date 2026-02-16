@@ -98,6 +98,32 @@ async function tryRefresh(refreshToken) {
   }
 }
 
+// Decode the id_token to extract user claims (roles, email, etc.)
+// The id_token is already from the same trusted IDP, so we just decode it here.
+// Auth is validated via the access_token.
+function decodeIdToken(idToken) {
+  try {
+    return jose.decodeJwt(idToken);
+  } catch {
+    return null;
+  }
+}
+
+function buildUser(accessPayload, idPayload) {
+  // Prefer id_token claims for user info and roles, fall back to access_token
+  const claims = idPayload || accessPayload;
+  const roles = claims.roles || accessPayload.roles || [];
+  const permissions = parseRoles(roles);
+
+  return {
+    userId: accessPayload.sub,
+    email: claims.email || accessPayload.email,
+    name: claims.name || claims.email || accessPayload.sub,
+    roles,
+    ...permissions
+  };
+}
+
 export async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -136,14 +162,8 @@ export async function requireAuth(req, res, next) {
       issuer: OIDC_ISSUER,
     });
 
-    const permissions = parseRoles(payload.roles);
-    req.user = {
-      userId: payload.sub,
-      email: payload.email,
-      name: payload.name || payload.email,
-      roles: payload.roles || [],
-      ...permissions
-    };
+    const idClaims = req.cookies?.id_token ? decodeIdToken(req.cookies.id_token) : null;
+    req.user = buildUser(payload, idClaims);
     next();
   } catch (error) {
     if (error.code === "ERR_JWT_EXPIRED" && req.cookies?.refresh_token) {
@@ -159,6 +179,9 @@ export async function requireAuth(req, res, next) {
             ...getCookieOptions(),
             maxAge: 24 * 60 * 60 * 1000,
           });
+          if (tokens.id_token) {
+            res.cookie("id_token", tokens.id_token, getCookieOptions());
+          }
           if (tokens.refresh_token) {
             res.cookie("refresh_token", tokens.refresh_token, {
               ...getCookieOptions(),
@@ -166,14 +189,8 @@ export async function requireAuth(req, res, next) {
             });
           }
 
-          const permissions = parseRoles(payload.roles);
-          req.user = {
-            userId: payload.sub,
-            email: payload.email,
-            name: payload.name || payload.email,
-            roles: payload.roles || [],
-            ...permissions
-          };
+          const idClaims = tokens.id_token ? decodeIdToken(tokens.id_token) : null;
+          req.user = buildUser(payload, idClaims);
           return next();
         } catch (refreshError) {
           console.error("Refreshed token verification failed:", refreshError.message);
