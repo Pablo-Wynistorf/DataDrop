@@ -60,7 +60,7 @@ router.get("/login", async (req, res) => {
     const params = new URLSearchParams({
       client_id: OIDC_CLIENT_ID,
       response_type: "code",
-      scope: "openid email profile",
+      scope: "openid email profile offline_access",
       redirect_uri: REDIRECT_URI,
       state,
       nonce
@@ -114,8 +114,21 @@ router.get("/callback", async (req, res) => {
       return res.status(400).json({ error: "Token exchange failed" });
     }
 
-    // Set the id_token as HTTP-only cookie
-    res.cookie("session", tokens.id_token, getCookieOptions());
+    const sessionId = uuidv4();
+    const sessionTtl = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 days
+
+    await docClient.send(new PutCommand({
+      TableName: SESSIONS_TABLE,
+      Item: {
+        id: `session_${sessionId}`,
+        type: "session",
+        idToken: tokens.id_token,
+        refreshToken: tokens.refresh_token || null,
+        ttl: sessionTtl
+      }
+    }));
+
+    res.cookie("session", sessionId, getCookieOptions());
     res.redirect(FRONTEND_URL);
   } catch (error) {
     console.error("Callback error:", error);
@@ -136,20 +149,84 @@ router.get("/verify", requireAuth, async (req, res) => {
   });
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
+  const sessionId = req.cookies?.session;
+  if (sessionId) {
+    try {
+      await docClient.send(new DeleteCommand({
+        TableName: SESSIONS_TABLE,
+        Key: { id: `session_${sessionId}` }
+      }));
+    } catch (e) {
+    }
+  }
   res.clearCookie("session", { path: "/" });
   res.json({ success: true });
 });
 
+
+router.post("/refresh", async (req, res) => {
+  const sessionId = req.cookies?.session;
+  if (!sessionId) {
+    return res.status(401).json({ error: "No session" });
+  }
+
+  try {
+    const record = await docClient.send(new GetCommand({
+      TableName: SESSIONS_TABLE,
+      Key: { id: `session_${sessionId}` }
+    }));
+
+    if (!record.Item || record.Item.type !== "session" || !record.Item.refreshToken) {
+      return res.status(401).json({ error: "No refresh token available" });
+    }
+
+    const config = await getOIDCConfig();
+    const tokenRes = await fetch(config.token_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+        refresh_token: record.Item.refreshToken
+      })
+    });
+
+    const tokens = await tokenRes.json();
+    if (!tokens.id_token) {
+      await docClient.send(new DeleteCommand({
+        TableName: SESSIONS_TABLE,
+        Key: { id: `session_${sessionId}` }
+      }));
+      return res.status(401).json({ error: "Refresh failed, please login again" });
+    }
+
+    await docClient.send(new PutCommand({
+      TableName: SESSIONS_TABLE,
+      Item: {
+        id: `session_${sessionId}`,
+        type: "session",
+        idToken: tokens.id_token,
+        refreshToken: tokens.refresh_token || record.Item.refreshToken,
+        ttl: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
+      }
+    }));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Refresh error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ============ CLI Authentication ============
 
-// CLI initiates login - returns a code to poll
 router.post("/cli/login", async (req, res) => {
   try {
     const cliCode = uuidv4();
     const displayCode = cliCode.substring(0, 8).toUpperCase();
     
-    // Store CLI auth request (pending state)
     await docClient.send(new PutCommand({
       TableName: SESSIONS_TABLE,
       Item: {
@@ -157,11 +234,10 @@ router.post("/cli/login", async (req, res) => {
         type: "cli_auth",
         status: "pending",
         displayCode,
-        ttl: Math.floor(Date.now() / 1000) + 600 // 10 min expiry
+        ttl: Math.floor(Date.now() / 1000) + 600
       }
     }));
 
-    // Return the code and URL for the user to visit
     const authUrl = `${FRONTEND_URL}?cli_auth=${cliCode}`;
     
     res.json({
@@ -176,7 +252,6 @@ router.post("/cli/login", async (req, res) => {
   }
 });
 
-// CLI polls this endpoint to check if auth is complete
 router.get("/cli/login/:code", async (req, res) => {
   try {
     const { code } = req.params;
@@ -195,7 +270,6 @@ router.get("/cli/login/:code", async (req, res) => {
     }
 
     if (record.Item.status === "authorized") {
-      // Clean up the record
       await docClient.send(new DeleteCommand({
         TableName: SESSIONS_TABLE,
         Key: { id: `cli_${code}` }
@@ -220,7 +294,7 @@ router.get("/cli/login/:code", async (req, res) => {
   }
 });
 
-// Browser authorizes the CLI (user must be logged in)
+
 router.post("/cli/authorize", requireAuth, async (req, res) => {
   try {
     const { code } = req.body;
@@ -238,7 +312,6 @@ router.post("/cli/authorize", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Invalid or expired code" });
     }
 
-    // Generate a CLI token (longer-lived than browser session)
     const tokenExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     const cliToken = jwt.sign(
       {
@@ -252,7 +325,6 @@ router.post("/cli/authorize", requireAuth, async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    // Update the CLI auth record with the token
     await docClient.send(new PutCommand({
       TableName: SESSIONS_TABLE,
       Item: {
@@ -264,7 +336,7 @@ router.post("/cli/authorize", requireAuth, async (req, res) => {
         userId: req.user.userId,
         email: req.user.email,
         name: req.user.name,
-        ttl: Math.floor(Date.now() / 1000) + 120 // 2 min to pick up
+        ttl: Math.floor(Date.now() / 1000) + 120
       }
     }));
 

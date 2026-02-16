@@ -264,12 +264,38 @@ async function verifySession() {
       currentUser = await res.json();
       showMainView();
       loadFiles();
+    } else if (res.status === 401) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        const retryRes = await fetch(`${API_URL}/auth/verify`, {
+          credentials: "include"
+        });
+        if (retryRes.ok) {
+          currentUser = await retryRes.json();
+          showMainView();
+          loadFiles();
+          return;
+        }
+      }
+      showLoginView();
     } else {
       showLoginView();
     }
   } catch (error) {
     console.error("Session verification failed:", error);
     showLoginView();
+  }
+}
+
+async function tryRefreshSession() {
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include"
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
