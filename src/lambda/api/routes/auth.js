@@ -110,25 +110,20 @@ router.get("/callback", async (req, res) => {
     });
 
     const tokens = await tokenRes.json();
-    if (!tokens.id_token) {
+    if (!tokens.access_token) {
       return res.status(400).json({ error: "Token exchange failed" });
     }
 
-    const sessionId = uuidv4();
-    const sessionTtl = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 days
+    // Set access_token as the session cookie
+    res.cookie("session", tokens.access_token, getCookieOptions());
 
-    await docClient.send(new PutCommand({
-      TableName: SESSIONS_TABLE,
-      Item: {
-        id: `session_${sessionId}`,
-        type: "session",
-        idToken: tokens.id_token,
-        refreshToken: tokens.refresh_token || null,
-        ttl: sessionTtl
-      }
-    }));
+    if (tokens.refresh_token) {
+      res.cookie("refresh_token", tokens.refresh_token, {
+        ...getCookieOptions(),
+        maxAge: 20 * 24 * 60 * 60 * 1000,
+      });
+    }
 
-    res.cookie("session", sessionId, getCookieOptions());
     res.redirect(FRONTEND_URL);
   } catch (error) {
     console.error("Callback error:", error);
@@ -149,38 +144,20 @@ router.get("/verify", requireAuth, async (req, res) => {
   });
 });
 
-router.post("/logout", async (req, res) => {
-  const sessionId = req.cookies?.session;
-  if (sessionId) {
-    try {
-      await docClient.send(new DeleteCommand({
-        TableName: SESSIONS_TABLE,
-        Key: { id: `session_${sessionId}` }
-      }));
-    } catch (e) {
-    }
-  }
+router.post("/logout", (_req, res) => {
   res.clearCookie("session", { path: "/" });
+  res.clearCookie("refresh_token", { path: "/" });
   res.json({ success: true });
 });
 
-
+// Refresh the session using the refresh_token cookie
 router.post("/refresh", async (req, res) => {
-  const sessionId = req.cookies?.session;
-  if (!sessionId) {
-    return res.status(401).json({ error: "No session" });
+  const refreshToken = req.cookies?.refresh_token;
+  if (!refreshToken) {
+    return res.status(401).json({ error: "No refresh token" });
   }
 
   try {
-    const record = await docClient.send(new GetCommand({
-      TableName: SESSIONS_TABLE,
-      Key: { id: `session_${sessionId}` }
-    }));
-
-    if (!record.Item || record.Item.type !== "session" || !record.Item.refreshToken) {
-      return res.status(401).json({ error: "No refresh token available" });
-    }
-
     const config = await getOIDCConfig();
     const tokenRes = await fetch(config.token_endpoint, {
       method: "POST",
@@ -189,29 +166,27 @@ router.post("/refresh", async (req, res) => {
         grant_type: "refresh_token",
         client_id: OIDC_CLIENT_ID,
         client_secret: OIDC_CLIENT_SECRET,
-        refresh_token: record.Item.refreshToken
+        refresh_token: refreshToken
       })
     });
 
     const tokens = await tokenRes.json();
-    if (!tokens.id_token) {
-      await docClient.send(new DeleteCommand({
-        TableName: SESSIONS_TABLE,
-        Key: { id: `session_${sessionId}` }
-      }));
+    if (!tokens.access_token) {
+      res.clearCookie("session", { path: "/" });
+      res.clearCookie("refresh_token", { path: "/" });
       return res.status(401).json({ error: "Refresh failed, please login again" });
     }
 
-    await docClient.send(new PutCommand({
-      TableName: SESSIONS_TABLE,
-      Item: {
-        id: `session_${sessionId}`,
-        type: "session",
-        idToken: tokens.id_token,
-        refreshToken: tokens.refresh_token || record.Item.refreshToken,
-        ttl: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
-      }
-    }));
+    // Update cookies with fresh tokens
+    res.cookie("session", tokens.access_token, getCookieOptions());
+
+    // Some providers rotate refresh tokens
+    if (tokens.refresh_token) {
+      res.cookie("refresh_token", tokens.refresh_token, {
+        ...getCookieOptions(),
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+    }
 
     res.json({ success: true });
   } catch (error) {

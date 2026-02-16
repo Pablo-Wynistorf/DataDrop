@@ -1,18 +1,12 @@
 import * as jose from "jose";
 import jwt from "jsonwebtoken";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 
 const OIDC_ISSUER = process.env.OIDC_ISSUER;
 const OIDC_CLIENT_ID = process.env.OIDC_CLIENT_ID;
 const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET;
+const FRONTEND_URL = process.env.FRONTEND_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
-const SESSIONS_TABLE = process.env.SESSIONS_TABLE;
 const DEFAULT_MAX_FILE_SIZE_GB = 1;
-
-const ddbClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(ddbClient);
-
 
 let jwksCache = null;
 let jwksCacheTime = 0;
@@ -23,14 +17,38 @@ async function getJWKS() {
   if (jwksCache && now - jwksCacheTime < JWKS_CACHE_TTL) {
     return jwksCache;
   }
-  
   const jwksUrl = `${OIDC_ISSUER}/.well-known/jwks.json`;
   const response = await fetch(jwksUrl);
   const jwksData = await response.json();
-  
   jwksCache = jose.createLocalJWKSet(jwksData);
   jwksCacheTime = now;
   return jwksCache;
+}
+
+// Cache OIDC discovery document
+let oidcConfigCache = null;
+let oidcConfigCacheTime = 0;
+const OIDC_CONFIG_CACHE_TTL = 3600000;
+
+async function getOIDCConfig() {
+  const now = Date.now();
+  if (oidcConfigCache && now - oidcConfigCacheTime < OIDC_CONFIG_CACHE_TTL) {
+    return oidcConfigCache;
+  }
+  const res = await fetch(`${OIDC_ISSUER}/.well-known/openid-configuration`);
+  oidcConfigCache = await res.json();
+  oidcConfigCacheTime = now;
+  return oidcConfigCache;
+}
+
+function getCookieOptions() {
+  const isProduction = FRONTEND_URL?.startsWith("https");
+  return {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "strict" : "lax",
+    path: "/",
+  };
 }
 
 function parseRoles(roles) {
@@ -58,22 +76,7 @@ function parseRoles(roles) {
   return result;
 }
 
-let oidcConfigCache = null;
-let oidcConfigCacheTime = 0;
-const OIDC_CONFIG_CACHE_TTL = 3600000; // 1 hour
-
-async function getOIDCConfig() {
-  const now = Date.now();
-  if (oidcConfigCache && now - oidcConfigCacheTime < OIDC_CONFIG_CACHE_TTL) {
-    return oidcConfigCache;
-  }
-  const res = await fetch(`${OIDC_ISSUER}/.well-known/openid-configuration`);
-  oidcConfigCache = await res.json();
-  oidcConfigCacheTime = now;
-  return oidcConfigCache;
-}
-
-async function tryRefreshSession(sessionId, refreshToken) {
+async function tryRefresh(refreshToken) {
   try {
     const config = await getOIDCConfig();
     const tokenRes = await fetch(config.token_endpoint, {
@@ -86,22 +89,9 @@ async function tryRefreshSession(sessionId, refreshToken) {
         refresh_token: refreshToken
       })
     });
-
     const tokens = await tokenRes.json();
-    if (!tokens.id_token) return null;
-
-    await docClient.send(new PutCommand({
-      TableName: SESSIONS_TABLE,
-      Item: {
-        id: `session_${sessionId}`,
-        type: "session",
-        idToken: tokens.id_token,
-        refreshToken: tokens.refresh_token || refreshToken,
-        ttl: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60
-      }
-    }));
-
-    return tokens.id_token;
+    if (!tokens.access_token) return null;
+    return tokens;
   } catch (error) {
     console.error("Token refresh failed:", error.message);
     return null;
@@ -109,13 +99,12 @@ async function tryRefreshSession(sessionId, refreshToken) {
 }
 
 export async function requireAuth(req, res, next) {
-  // Check for CLI token in Authorization header first
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const cliToken = authHeader.substring(7);
     try {
       const payload = jwt.verify(cliToken, JWT_SECRET);
-      
+
       if (payload.type !== "cli") {
         return res.status(401).json({ error: "Invalid token type" });
       }
@@ -135,39 +124,19 @@ export async function requireAuth(req, res, next) {
     }
   }
 
-  const sessionId = req.cookies?.session;
-  
-  if (!sessionId) {
+  const accessToken = req.cookies?.session;
+
+  if (!accessToken) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-
-  let sessionRecord;
-  try {
-    const result = await docClient.send(new GetCommand({
-      TableName: SESSIONS_TABLE,
-      Key: { id: `session_${sessionId}` }
-    }));
-    sessionRecord = result.Item;
-  } catch (error) {
-    console.error("Session lookup failed:", error.message);
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  if (!sessionRecord || sessionRecord.type !== "session" || !sessionRecord.idToken) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  let token = sessionRecord.idToken;
 
   try {
     const JWKS = await getJWKS();
-    const { payload } = await jose.jwtVerify(token, JWKS, {
+    const { payload } = await jose.jwtVerify(accessToken, JWKS, {
       issuer: OIDC_ISSUER,
-      audience: OIDC_CLIENT_ID,
     });
 
     const permissions = parseRoles(payload.roles);
-
     req.user = {
       userId: payload.sub,
       email: payload.email,
@@ -177,15 +146,25 @@ export async function requireAuth(req, res, next) {
     };
     next();
   } catch (error) {
-    if (error.code === "ERR_JWT_EXPIRED" && sessionRecord.refreshToken) {
-      const newToken = await tryRefreshSession(sessionId, sessionRecord.refreshToken);
-      if (newToken) {
+    if (error.code === "ERR_JWT_EXPIRED" && req.cookies?.refresh_token) {
+      const tokens = await tryRefresh(req.cookies.refresh_token);
+      if (tokens) {
         try {
           const JWKS = await getJWKS();
-          const { payload } = await jose.jwtVerify(newToken, JWKS, {
+          const { payload } = await jose.jwtVerify(tokens.access_token, JWKS, {
             issuer: OIDC_ISSUER,
-            audience: OIDC_CLIENT_ID,
           });
+
+          res.cookie("session", tokens.access_token, {
+            ...getCookieOptions(),
+            maxAge: 24 * 60 * 60 * 1000,
+          });
+          if (tokens.refresh_token) {
+            res.cookie("refresh_token", tokens.refresh_token, {
+              ...getCookieOptions(),
+              maxAge: 30 * 24 * 60 * 60 * 1000,
+            });
+          }
 
           const permissions = parseRoles(payload.roles);
           req.user = {
