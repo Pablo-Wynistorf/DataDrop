@@ -1,0 +1,95 @@
+name: Auto Release CLI (Minor)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'datadropcli/**'
+
+permissions:
+  contents: write
+
+jobs:
+  auto-release:
+    name: Bump Minor Version & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest release tag
+        id: latest
+        run: |
+          # Get the latest tag matching v*.*.* sorted by version
+          LATEST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          echo "TAG=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest tag: $LATEST"
+
+      - name: Compute next minor version
+        id: next
+        run: |
+          TAG="${{ steps.latest.outputs.TAG }}"
+          # Strip the v prefix
+          VERSION="${TAG#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          NEXT_MINOR=$((MINOR + 1))
+          NEXT_TAG="v${MAJOR}.${NEXT_MINOR}.0"
+          echo "VERSION=$NEXT_TAG" >> $GITHUB_OUTPUT
+          echo "Next version: $NEXT_TAG"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binaries
+        working-directory: datadropcli
+        run: |
+          VERSION=${{ steps.next.outputs.VERSION }}
+
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-darwin-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/datadrop-windows-amd64.exe .
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.next.outputs.VERSION }}
+          git push origin ${{ steps.next.outputs.VERSION }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.next.outputs.VERSION }}
+          name: DataDrop CLI ${{ steps.next.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/datadrop-linux-amd64
+            dist/datadrop-linux-arm64
+            dist/datadrop-darwin-amd64
+            dist/datadrop-darwin-arm64
+            dist/datadrop-windows-amd64.exe
+            dist/checksums.txt
+          body: |
+            Automated minor release triggered by CLI changes.
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.latest.outputs.TAG }}...${{ steps.next.outputs.VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

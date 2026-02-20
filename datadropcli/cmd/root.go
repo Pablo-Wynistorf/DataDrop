@@ -38,6 +38,8 @@ func init() {
 	rootCmd.AddCommand(getURLCmd)
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(downloadCmd)
+	rootCmd.AddCommand(infoCmd)
+	rootCmd.AddCommand(renameCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)

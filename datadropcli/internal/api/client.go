@@ -421,6 +421,22 @@ func (c *Client) GetDownloadURL(fileID string) (*DownloadResponse, error) {
 	return &result, nil
 }
 
+func (c *Client) RenameFile(fileID, newName string) error {
+	body := map[string]string{"fileName": newName}
+	resp, err := c.doRequest("PATCH", "/files/"+fileID, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to rename file: %s - %s", resp.Status, string(respBody))
+	}
+
+	return nil
+}
+
 func (c *Client) DeleteFile(fileID string) error {
 	resp, err := c.doRequest("DELETE", "/files/"+fileID, nil)
 	if err != nil {

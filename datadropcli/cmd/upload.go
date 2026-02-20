@@ -16,7 +16,6 @@ import (
 
 const progressBarWidth = 40
 
-// progressTracker tracks upload progress and estimates time remaining
 type progressTracker struct {
 	startTime    time.Time
 	totalBytes   int64
@@ -29,18 +28,21 @@ var (
 	uploadType       string
 	expiresInSeconds int
 	maxDownloads     int
+	clipboardFlag    bool
 )
 
 var uploadCmd = &cobra.Command{
-	Use:   "upload <file>",
-	Short: "Upload a file to DataDrop",
-	Long: `Upload a file to DataDrop. 
+	Use:   "upload <file> [files...]",
+	Short: "Upload files to DataDrop",
+	Long: `Upload one or more files to DataDrop.
 
 Examples:
   datadrop upload myfile.txt
   datadrop upload myfile.txt --type private --expires 86400 --max-downloads 5
-  datadrop upload myfile.txt --type cdn`,
-	Args: cobra.ExactArgs(1),
+  datadrop upload *.txt
+  datadrop upload ./myfolder
+  datadrop upload myfile.txt --clipboard`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runUpload,
 }
 
@@ -48,6 +50,33 @@ func init() {
 	uploadCmd.Flags().StringVarP(&uploadType, "type", "t", "private", "Upload type: 'cdn' or 'private'")
 	uploadCmd.Flags().IntVarP(&expiresInSeconds, "expires", "e", 0, "Expiration time in seconds (private files only)")
 	uploadCmd.Flags().IntVarP(&maxDownloads, "max-downloads", "m", 0, "Maximum number of downloads (private files only)")
+	uploadCmd.Flags().BoolVar(&clipboardFlag, "clipboard", false, "Copy share URL to clipboard after upload")
+}
+
+// expandPaths takes the raw args and expands directories into their files.
+func expandPaths(args []string) ([]string, error) {
+	var paths []string
+	for _, arg := range args {
+		info, err := os.Stat(arg)
+		if err != nil {
+			return nil, fmt.Errorf("not found: %s", arg)
+		}
+		if !info.IsDir() {
+			paths = append(paths, arg)
+			continue
+		}
+		// Walk directory (non-recursive, top-level files only)
+		entries, err := os.ReadDir(arg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read directory %s: %w", arg, err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				paths = append(paths, filepath.Join(arg, e.Name()))
+			}
+		}
+	}
+	return paths, nil
 }
 
 func runUpload(cmd *cobra.Command, args []string) error {
@@ -60,39 +89,96 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Run 'datadrop login' first")
 	}
 
-	filePath := args[0]
+	filePaths, err := expandPaths(args)
+	if err != nil {
+		return err
+	}
 
-	// Check file exists
+	if len(filePaths) == 0 {
+		return fmt.Errorf("no files to upload")
+	}
+
+	client := api.NewClient(cfg)
+	batch := len(filePaths) > 1
+
+	type result struct {
+		name   string
+		fileID string
+		cdnURL *string
+		err    error
+	}
+	var results []result
+
+	for i, filePath := range filePaths {
+		if batch {
+			fmt.Printf("\n[%d/%d] ", i+1, len(filePaths))
+		}
+
+		fileID, cdnURL, err := uploadSingleFile(client, filePath)
+		results = append(results, result{filepath.Base(filePath), fileID, cdnURL, err})
+		if err != nil {
+			fmt.Printf("✗ %s: %v\n", filepath.Base(filePath), err)
+		}
+	}
+
+	// Batch summary
+	if batch {
+		succeeded := 0
+		for _, r := range results {
+			if r.err == nil {
+				succeeded++
+			}
+		}
+		fmt.Printf("\n%d/%d files uploaded successfully\n", succeeded, len(results))
+	}
+
+	// Clipboard: copy share URL of the last successful upload
+	if clipboardFlag {
+		var lastID string
+		for i := len(results) - 1; i >= 0; i-- {
+			if results[i].err == nil {
+				lastID = results[i].fileID
+				break
+			}
+		}
+		if lastID != "" {
+			shareResp, err := client.GetShareURL(lastID, 86400)
+			if err == nil {
+				if err := copyToClipboard(shareResp.ShareURL); err == nil {
+					fmt.Println("✓ Share URL copied to clipboard")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func uploadSingleFile(client *api.Client, filePath string) (string, *string, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return fmt.Errorf("file not found: %w", err)
+		return "", nil, fmt.Errorf("file not found: %w", err)
 	}
-
 	if fileInfo.IsDir() {
-		return fmt.Errorf("cannot upload directories")
+		return "", nil, fmt.Errorf("cannot upload directories directly")
 	}
 
-	// Open file
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		return "", nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	fileName := filepath.Base(filePath)
+	name := filepath.Base(filePath)
 	fileSize := fileInfo.Size()
 
-	// Detect content type
-	contentType := mime.TypeByExtension(filepath.Ext(fileName))
+	contentType := mime.TypeByExtension(filepath.Ext(name))
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	client := api.NewClient(cfg)
-
-	// Build upload request
 	uploadReq := &api.UploadRequest{
-		FileName:   fileName,
+		FileName:   name,
 		FileType:   contentType,
 		FileSize:   fileSize,
 		UploadType: uploadType,
@@ -107,36 +193,30 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("Uploading %s (%s)...\n", fileName, formatSize(fileSize))
+	fmt.Printf("Uploading %s (%s)...\n", name, formatSize(fileSize))
 
-	// Get presigned URL
 	uploadResp, err := client.GetUploadURL(uploadReq)
 	if err != nil {
-		return fmt.Errorf("failed to get upload URL: %w", err)
+		return "", nil, fmt.Errorf("failed to get upload URL: %w", err)
 	}
 
-	// Check if multipart upload is needed
 	if uploadResp.Multipart != nil {
-		// Multipart upload for large files
 		if err := doMultipartUpload(client, uploadResp, file, fileSize); err != nil {
-			// Try to abort on failure
 			client.AbortMultipartUpload(uploadResp.FileID)
-			return fmt.Errorf("upload failed: %w", err)
+			return "", nil, fmt.Errorf("upload failed: %w", err)
 		}
 	} else {
-		// Single PUT upload for smaller files
 		pt := newProgressTracker(fileSize)
 		progressFn := func(uploaded, total int64) {
 			printProgressBar(uploaded, total, pt, "")
 		}
 		if err := client.UploadToS3(uploadResp.UploadURL, file, fileSize, contentType, progressFn); err != nil {
-			return fmt.Errorf("upload failed: %w", err)
+			return "", nil, fmt.Errorf("upload failed: %w", err)
 		}
-		fmt.Println() // New line after progress bar
+		fmt.Println()
 
-		// Confirm upload
 		if err := client.ConfirmUpload(uploadResp.FileID); err != nil {
-			return fmt.Errorf("failed to confirm upload: %w", err)
+			return "", nil, fmt.Errorf("failed to confirm upload: %w", err)
 		}
 	}
 
@@ -146,16 +226,14 @@ func runUpload(cmd *cobra.Command, args []string) error {
 	if uploadResp.CdnURL != nil {
 		fmt.Printf("  CDN URL: %s\n", *uploadResp.CdnURL)
 	}
-
 	if uploadResp.ExpiresAt != nil {
 		fmt.Printf("  Expires: %s\n", *uploadResp.ExpiresAt)
 	}
-
 	if uploadResp.MaxDownloads != nil {
 		fmt.Printf("  Max downloads: %d\n", *uploadResp.MaxDownloads)
 	}
 
-	return nil
+	return uploadResp.FileID, uploadResp.CdnURL, nil
 }
 
 func formatSize(bytes int64) string {
@@ -183,22 +261,20 @@ func newProgressTracker(totalBytes int64) *progressTracker {
 func (pt *progressTracker) update(currentBytes int64) (speed float64, eta time.Duration) {
 	now := time.Now()
 	elapsed := now.Sub(pt.lastUpdate).Seconds()
-	
-	if elapsed > 0.5 { // Update speed every 0.5 seconds
+
+	if elapsed > 0.5 {
 		bytesDiff := currentBytes - pt.lastBytes
 		currentSpeed := float64(bytesDiff) / elapsed
-		
-		// Keep last 10 samples for smoothing
+
 		pt.speedSamples = append(pt.speedSamples, currentSpeed)
 		if len(pt.speedSamples) > 10 {
 			pt.speedSamples = pt.speedSamples[1:]
 		}
-		
+
 		pt.lastUpdate = now
 		pt.lastBytes = currentBytes
 	}
-	
-	// Calculate average speed
+
 	if len(pt.speedSamples) > 0 {
 		var sum float64
 		for _, s := range pt.speedSamples {
@@ -206,13 +282,12 @@ func (pt *progressTracker) update(currentBytes int64) (speed float64, eta time.D
 		}
 		speed = sum / float64(len(pt.speedSamples))
 	}
-	
-	// Calculate ETA
+
 	remaining := pt.totalBytes - currentBytes
 	if speed > 0 {
 		eta = time.Duration(float64(remaining)/speed) * time.Second
 	}
-	
+
 	return speed, eta
 }
 
@@ -220,14 +295,14 @@ func formatDuration(d time.Duration) string {
 	if d < 0 {
 		return "--:--"
 	}
-	
+
 	d = d.Round(time.Second)
 	h := d / time.Hour
 	d -= h * time.Hour
 	m := d / time.Minute
 	d -= m * time.Minute
 	s := d / time.Second
-	
+
 	if h > 0 {
 		return fmt.Sprintf("%dh%02dm", h, m)
 	}
@@ -248,14 +323,14 @@ func formatSpeed(bytesPerSec float64) string {
 func printProgressBar(current, total int64, pt *progressTracker, suffix string) {
 	percent := float64(current) / float64(total) * 100
 	filled := int(float64(progressBarWidth) * float64(current) / float64(total))
-	
+
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", progressBarWidth-filled)
-	
+
 	speed, eta := pt.update(current)
 	etaStr := formatDuration(eta)
 	speedStr := formatSpeed(speed)
-	
-	fmt.Printf("\r  [%s] %3.0f%% %s/%s %s ETA %s %s", 
+
+	fmt.Printf("\r  [%s] %3.0f%% %s/%s %s ETA %s %s",
 		bar, percent, formatSize(current), formatSize(total), speedStr, etaStr, suffix)
 }
 
@@ -268,37 +343,31 @@ func doMultipartUpload(client *api.Client, uploadResp *api.UploadResponse, file 
 	pt := newProgressTracker(fileSize)
 
 	for partNum := 1; partNum <= mp.PartCount; partNum++ {
-		// Calculate part size (last part may be smaller)
 		offset := int64(partNum-1) * mp.PartSize
 		partSize := mp.PartSize
 		if offset+partSize > fileSize {
 			partSize = fileSize - offset
 		}
 
-		// Get presigned URL for this part
 		partResp, err := client.GetPartURL(uploadResp.FileID, partNum)
 		if err != nil {
 			fmt.Println()
 			return fmt.Errorf("failed to get part %d URL: %w", partNum, err)
 		}
 
-		// Seek to the correct position
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
 			fmt.Println()
 			return fmt.Errorf("failed to seek: %w", err)
 		}
 
-		// Create a limited reader for this part
 		partReader := io.LimitReader(file, partSize)
 
-		// Track progress for this part
 		partUploaded := int64(0)
 		progressFn := func(uploaded, _ int64) {
 			partUploaded = uploaded
 			printProgressBar(totalUploaded+partUploaded, fileSize, pt, fmt.Sprintf("(part %d/%d)", partNum, mp.PartCount))
 		}
 
-		// Upload the part
 		etag, err := client.UploadPart(partResp.UploadURL, partReader, partSize, progressFn)
 		if err != nil {
 			fmt.Println()
@@ -315,7 +384,6 @@ func doMultipartUpload(client *api.Client, uploadResp *api.UploadResponse, file 
 	fmt.Println()
 	fmt.Print("  Completing upload...")
 
-	// Complete the multipart upload
 	if err := client.CompleteMultipartUpload(uploadResp.FileID, parts); err != nil {
 		fmt.Println()
 		return fmt.Errorf("failed to complete multipart upload: %w", err)

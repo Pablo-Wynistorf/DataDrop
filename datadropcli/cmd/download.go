@@ -34,7 +34,7 @@ Examples:
 
 func init() {
 	downloadCmd.Flags().StringVar(&downloadFileID, "id", "", "File ID")
-	downloadCmd.Flags().StringVar(&downloadFileName, "file-name", "", "File name (uses first match)")
+	downloadCmd.Flags().StringVar(&downloadFileName, "file-name", "", "File name")
 	downloadCmd.Flags().StringVarP(&downloadOutput, "output", "o", ".", "Output directory or file path")
 }
 
@@ -54,27 +54,19 @@ func runDownload(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(cfg)
 
-	// Resolve file ID from name if needed
 	resolvedID := downloadFileID
 	resolvedName := downloadFileName
 
 	if resolvedID == "" && resolvedName != "" {
-		files, err := client.ListFiles()
+		fileInfo, err := resolveFileByNameWithInfo(client, resolvedName)
 		if err != nil {
-			return fmt.Errorf("failed to list files: %w", err)
+			return err
 		}
-		for _, f := range files {
-			if f.FileName == resolvedName {
-				resolvedID = f.ID
-				break
-			}
-		}
-		if resolvedID == "" {
-			return fmt.Errorf("file not found: %s", resolvedName)
-		}
+		resolvedID = fileInfo.ID
+		resolvedName = fileInfo.FileName
 	}
 
-	// If we don't have a file name yet, look it up
+	// If we only have an ID, look up the name
 	if resolvedName == "" {
 		files, err := client.ListFiles()
 		if err != nil {
@@ -87,7 +79,7 @@ func runDownload(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if resolvedName == "" {
-			resolvedName = resolvedID // fallback to ID as filename
+			resolvedName = resolvedID
 		}
 	}
 
@@ -109,7 +101,6 @@ func runDownload(cmd *cobra.Command, args []string) error {
 
 	// Avoid overwriting without notice
 	if _, err := os.Stat(outputPath); err == nil {
-		// File exists — append a suffix
 		ext := filepath.Ext(outputPath)
 		base := strings.TrimSuffix(outputPath, ext)
 		outputPath = fmt.Sprintf("%s_%d%s", base, time.Now().Unix(), ext)
@@ -152,8 +143,8 @@ func downloadFromURL(url, destPath string) error {
 	if totalSize > 0 {
 		pt := newProgressTracker(totalSize)
 		pr := &progressWriter{
-			writer:     out,
-			total:      totalSize,
+			writer: out,
+			total:  totalSize,
 			onProgress: func(written, total int64) {
 				printProgressBar(written, total, pt, "")
 			},

@@ -31,7 +31,7 @@ Examples:
 
 func init() {
 	deleteCmd.Flags().StringVar(&deleteFileID, "id", "", "File ID")
-	deleteCmd.Flags().StringVar(&deleteFileName, "name", "", "File name (uses first match)")
+	deleteCmd.Flags().StringVar(&deleteFileName, "name", "", "File name")
 	deleteCmd.Flags().BoolVarP(&deleteForce, "force", "f", false, "Skip confirmation")
 }
 
@@ -51,34 +51,21 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(cfg)
 
-	// If name provided, find the file ID
-	var targetFile *api.FileInfo
+	displayName := deleteFileName
 	if deleteFileID == "" && deleteFileName != "" {
-		files, err := client.ListFiles()
+		fileInfo, err := resolveFileByNameWithInfo(client, deleteFileName)
 		if err != nil {
-			return fmt.Errorf("failed to list files: %w", err)
+			return err
 		}
-
-		for _, f := range files {
-			if f.FileName == deleteFileName {
-				deleteFileID = f.ID
-				targetFile = &f
-				break
-			}
-		}
-
-		if deleteFileID == "" {
-			return fmt.Errorf("file not found: %s", deleteFileName)
-		}
+		deleteFileID = fileInfo.ID
+		displayName = fileInfo.FileName
 	}
 
-	// Confirm deletion
 	if !deleteForce {
-		name := deleteFileName
-		if targetFile != nil {
-			name = targetFile.FileName
+		if displayName == "" {
+			displayName = deleteFileID
 		}
-		fmt.Printf("Are you sure you want to delete '%s'? [y/N]: ", name)
+		fmt.Printf("Are you sure you want to delete '%s'? [y/N]: ", displayName)
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		if strings.ToLower(strings.TrimSpace(answer)) != "y" {

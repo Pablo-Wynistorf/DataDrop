@@ -5,13 +5,15 @@ import (
 
 	"github.com/datadrop/cli/internal/api"
 	"github.com/datadrop/cli/internal/config"
+	qrcode "github.com/skip2/go-qrcode"
 	"github.com/spf13/cobra"
 )
 
 var (
-	fileID          string
-	fileName        string
-	linkExpiresIn   int
+	fileID        string
+	fileName      string
+	linkExpiresIn int
+	showQR        bool
 )
 
 var getURLCmd = &cobra.Command{
@@ -22,14 +24,16 @@ var getURLCmd = &cobra.Command{
 Examples:
   datadrop get-url --id abc123
   datadrop get-url --name myfile.txt
-  datadrop get-url --id abc123 --expires 3600`,
+  datadrop get-url --id abc123 --expires 3600
+  datadrop get-url --id abc123 --qr`,
 	RunE: runGetURL,
 }
 
 func init() {
 	getURLCmd.Flags().StringVar(&fileID, "id", "", "File ID")
-	getURLCmd.Flags().StringVar(&fileName, "name", "", "File name (uses first match)")
+	getURLCmd.Flags().StringVar(&fileName, "name", "", "File name")
 	getURLCmd.Flags().IntVar(&linkExpiresIn, "expires", 86400, "Link expiration in seconds (default 24h)")
+	getURLCmd.Flags().BoolVar(&showQR, "qr", false, "Display QR code in terminal")
 }
 
 func runGetURL(cmd *cobra.Command, args []string) error {
@@ -48,26 +52,14 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(cfg)
 
-	// If name provided, find the file ID
 	if fileID == "" && fileName != "" {
-		files, err := client.ListFiles()
+		resolved, err := resolveFileByName(client, fileName)
 		if err != nil {
-			return fmt.Errorf("failed to list files: %w", err)
+			return err
 		}
-
-		for _, f := range files {
-			if f.FileName == fileName {
-				fileID = f.ID
-				break
-			}
-		}
-
-		if fileID == "" {
-			return fmt.Errorf("file not found: %s", fileName)
-		}
+		fileID = resolved
 	}
 
-	// Get share URL
 	shareResp, err := client.GetShareURL(fileID, linkExpiresIn)
 	if err != nil {
 		return fmt.Errorf("failed to get share URL: %w", err)
@@ -86,6 +78,15 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 
 	if shareResp.MaxDownloads != nil && shareResp.DownloadsRemaining != nil {
 		fmt.Printf("Downloads remaining: %d/%d\n", *shareResp.DownloadsRemaining, *shareResp.MaxDownloads)
+	}
+
+	if showQR {
+		qr, err := qrcode.New(shareResp.ShareURL, qrcode.Medium)
+		if err != nil {
+			return fmt.Errorf("failed to generate QR code: %w", err)
+		}
+		fmt.Println()
+		fmt.Println(qr.ToSmallString(false))
 	}
 
 	return nil

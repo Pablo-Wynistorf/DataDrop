@@ -151,7 +151,7 @@ router.post("/:fileId/share", async (req, res) => {
 router.patch("/:fileId", async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { expiresInSeconds, expiresAt, maxDownloads } = req.body;
+    const { expiresInSeconds, expiresAt, maxDownloads, fileName } = req.body;
 
     console.log("PATCH request for file:", fileId, "body:", req.body);
 
@@ -219,6 +219,13 @@ router.patch("/:fileId", async (req, res) => {
           expValues[":zero"] = 0;
         }
       }
+    }
+
+    // Handle fileName update
+    if (fileName && typeof fileName === "string" && fileName.trim().length > 0) {
+      setParts.push("#fileName = :fileName");
+      expNames["#fileName"] = "fileName";
+      expValues[":fileName"] = fileName.trim();
     }
 
     if (setParts.length === 0 && removeParts.length === 0) {
