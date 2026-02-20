@@ -12,6 +12,7 @@ import (
 var (
 	fileID        string
 	fileName      string
+	fileArg       string
 	linkExpiresIn int
 	showQR        bool
 )
@@ -22,18 +23,32 @@ var getURLCmd = &cobra.Command{
 	Long: `Generate a shareable URL for a file.
 
 Examples:
-  datadrop get-url --id abc123
-  datadrop get-url --name myfile.txt
+  datadrop get-url --file myfile.txt
+  datadrop get-url --file abc12345-...
   datadrop get-url --id abc123 --expires 3600
-  datadrop get-url --id abc123 --qr`,
+  datadrop get-url --file myfile.txt --qr`,
+	RunE: runGetURL,
+}
+
+var shareCmd = &cobra.Command{
+	Use:   "share",
+	Short: "Share a file (alias for get-url)",
+	Long: `Generate a shareable URL for a file.
+
+Examples:
+  datadrop share --file myfile.txt
+  datadrop share --file abc123 --qr`,
 	RunE: runGetURL,
 }
 
 func init() {
-	getURLCmd.Flags().StringVar(&fileID, "id", "", "File ID")
-	getURLCmd.Flags().StringVar(&fileName, "name", "", "File name")
-	getURLCmd.Flags().IntVar(&linkExpiresIn, "expires", 86400, "Link expiration in seconds (default 24h)")
-	getURLCmd.Flags().BoolVar(&showQR, "qr", false, "Display QR code in terminal")
+	for _, cmd := range []*cobra.Command{getURLCmd, shareCmd} {
+		cmd.Flags().StringVar(&fileArg, "file", "", "File ID or name (auto-detected)")
+		cmd.Flags().StringVar(&fileID, "id", "", "File ID")
+		cmd.Flags().StringVar(&fileName, "name", "", "File name")
+		cmd.Flags().IntVar(&linkExpiresIn, "expires", 86400, "Link expiration in seconds (default 24h)")
+		cmd.Flags().BoolVar(&showQR, "qr", false, "Display QR code in terminal")
+	}
 }
 
 func runGetURL(cmd *cobra.Command, args []string) error {
@@ -46,21 +61,19 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Run 'datadrop login' first")
 	}
 
-	if fileID == "" && fileName == "" {
-		return fmt.Errorf("either --id or --name is required")
+	identifier, err := getFileIdentifier(fileID, fileName, fileArg, args)
+	if err != nil {
+		return err
 	}
 
 	client := api.NewClient(cfg)
 
-	if fileID == "" && fileName != "" {
-		resolved, err := resolveFileByName(client, fileName)
-		if err != nil {
-			return err
-		}
-		fileID = resolved
+	resolvedID, err := resolveFileArg(client, identifier)
+	if err != nil {
+		return err
 	}
 
-	shareResp, err := client.GetShareURL(fileID, linkExpiresIn)
+	shareResp, err := client.GetShareURL(resolvedID, linkExpiresIn)
 	if err != nil {
 		return fmt.Errorf("failed to get share URL: %w", err)
 	}

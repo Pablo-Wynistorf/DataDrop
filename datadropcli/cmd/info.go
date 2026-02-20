@@ -11,6 +11,7 @@ import (
 var (
 	infoFileID   string
 	infoFileName string
+	infoFileArg  string
 )
 
 var infoCmd = &cobra.Command{
@@ -19,12 +20,14 @@ var infoCmd = &cobra.Command{
 	Long: `Display metadata for a file.
 
 Examples:
-  datadrop info --id abc123
-  datadrop info --name myfile.txt`,
+  datadrop info --file myfile.txt
+  datadrop info --file abc12345-...
+  datadrop info --id abc123`,
 	RunE: runInfo,
 }
 
 func init() {
+	infoCmd.Flags().StringVar(&infoFileArg, "file", "", "File ID or name (auto-detected)")
 	infoCmd.Flags().StringVar(&infoFileID, "id", "", "File ID")
 	infoCmd.Flags().StringVar(&infoFileName, "name", "", "File name")
 }
@@ -39,34 +42,16 @@ func runInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Run 'datadrop login' first")
 	}
 
-	if infoFileID == "" && infoFileName == "" {
-		return fmt.Errorf("either --id or --name is required")
+	identifier, err := getFileIdentifier(infoFileID, infoFileName, infoFileArg, args)
+	if err != nil {
+		return err
 	}
 
 	client := api.NewClient(cfg)
 
-	var file *api.FileInfo
-
-	if infoFileName != "" && infoFileID == "" {
-		f, err := resolveFileByNameWithInfo(client, infoFileName)
-		if err != nil {
-			return err
-		}
-		file = f
-	} else {
-		files, err := client.ListFiles()
-		if err != nil {
-			return fmt.Errorf("failed to list files: %w", err)
-		}
-		for _, f := range files {
-			if f.ID == infoFileID {
-				file = &f
-				break
-			}
-		}
-		if file == nil {
-			return fmt.Errorf("file not found: %s", infoFileID)
-		}
+	file, err := resolveFileArgWithInfo(client, identifier)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("  Name:       %s\n", file.FileName)

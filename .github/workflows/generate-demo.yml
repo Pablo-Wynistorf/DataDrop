@@ -1,0 +1,49 @@
+name: Generate CLI Demo GIF
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  demo:
+    name: Generate Demo GIF
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build CLI
+        working-directory: datadropcli
+        run: go build -ldflags="-s -w -X main.Version=v1.0.0" -o /usr/local/bin/datadrop .
+
+      - name: Install VHS
+        run: |
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+          sudo apt update && sudo apt install -y vhs ffmpeg
+          # Install ttyd
+          TTYD_VERSION=$(curl -s https://api.github.com/repos/tsl0922/ttyd/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o /usr/local/bin/ttyd
+          chmod +x /usr/local/bin/ttyd
+
+      - name: Generate demo GIF
+        working-directory: datadropcli
+        run: vhs demo.tape
+
+      - name: Commit GIF
+        working-directory: datadropcli
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add demo.gif
+          git diff --cached --quiet || git commit -m "chore: update CLI demo GIF"
+          git push

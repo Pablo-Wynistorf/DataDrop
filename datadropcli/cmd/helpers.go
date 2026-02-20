@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,49 +13,47 @@ import (
 	"github.com/datadrop/cli/internal/api"
 )
 
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isUUID returns true if the string looks like a UUID v4.
+func isUUID(s string) bool {
+	return uuidRegex.MatchString(s)
+}
+
+// resolveFileArg takes a value that could be either a UUID or a file name,
+// auto-detects which it is, and returns the file ID.
+func resolveFileArg(client *api.Client, value string) (string, error) {
+	if isUUID(value) {
+		return value, nil
+	}
+	return resolveFileByName(client, value)
+}
+
+// resolveFileArgWithInfo is like resolveFileArg but returns the full FileInfo.
+func resolveFileArgWithInfo(client *api.Client, value string) (*api.FileInfo, error) {
+	if isUUID(value) {
+		files, err := client.ListFiles()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list files: %w", err)
+		}
+		for _, f := range files {
+			if f.ID == value {
+				return &f, nil
+			}
+		}
+		return nil, fmt.Errorf("file not found: %s", value)
+	}
+	return resolveFileByNameWithInfo(client, value)
+}
+
 // resolveFileByName finds a file ID by name. If multiple files share the same
 // name, it presents an interactive picker so the user can choose.
 func resolveFileByName(client *api.Client, name string) (string, error) {
-	files, err := client.ListFiles()
+	f, err := resolveFileByNameWithInfo(client, name)
 	if err != nil {
-		return "", fmt.Errorf("failed to list files: %w", err)
+		return "", err
 	}
-
-	var matches []api.FileInfo
-	for _, f := range files {
-		if f.FileName == name {
-			matches = append(matches, f)
-		}
-	}
-
-	if len(matches) == 0 {
-		return "", fmt.Errorf("file not found: %s", name)
-	}
-
-	if len(matches) == 1 {
-		return matches[0].ID, nil
-	}
-
-	// Multiple matches — interactive selection
-	fmt.Printf("Multiple files named '%s' found:\n\n", name)
-	for i, f := range matches {
-		size := formatSize(f.FileSize)
-		fmt.Printf("  [%d] %s  (%s, %s, %s)\n", i+1, f.ID, f.UploadType, size, f.CreatedAt)
-	}
-	fmt.Println()
-
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Printf("Select file [1-%d]: ", len(matches))
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		idx, err := strconv.Atoi(input)
-		if err == nil && idx >= 1 && idx <= len(matches) {
-			return matches[idx-1].ID, nil
-		}
-		fmt.Println("Invalid selection, try again.")
-	}
+	return f.ID, nil
 }
 
 // resolveFileByNameWithInfo is like resolveFileByName but also returns the FileInfo.
@@ -79,6 +78,7 @@ func resolveFileByNameWithInfo(client *api.Client, name string) (*api.FileInfo, 
 		return &matches[0], nil
 	}
 
+	// Multiple matches — interactive selection
 	fmt.Printf("Multiple files named '%s' found:\n\n", name)
 	for i, f := range matches {
 		size := formatSize(f.FileSize)
@@ -98,6 +98,23 @@ func resolveFileByNameWithInfo(client *api.Client, name string) (*api.FileInfo, 
 		}
 		fmt.Println("Invalid selection, try again.")
 	}
+}
+
+// getFileIdentifier consolidates positional args, --id, --name/--file-name, and --file flags.
+func getFileIdentifier(id, name, file string, args []string) (string, error) {
+	if len(args) > 0 {
+		return args[0], nil
+	}
+	if file != "" {
+		return file, nil
+	}
+	if id != "" {
+		return id, nil
+	}
+	if name != "" {
+		return name, nil
+	}
+	return "", fmt.Errorf("specify a file: datadrop <command> <id-or-name>")
 }
 
 // copyToClipboard copies text to the system clipboard.

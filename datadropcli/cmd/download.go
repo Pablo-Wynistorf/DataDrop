@@ -17,6 +17,7 @@ import (
 var (
 	downloadFileID   string
 	downloadFileName string
+	downloadFileArg  string
 	downloadOutput   string
 )
 
@@ -26,13 +27,14 @@ var downloadCmd = &cobra.Command{
 	Long: `Download a file directly to your current directory.
 
 Examples:
-  datadrop download --id abc123
-  datadrop download --file-name myfile.txt
+  datadrop download --file myfile.txt
+  datadrop download --file abc12345-...
   datadrop download --id abc123 -o ~/Downloads/`,
 	RunE: runDownload,
 }
 
 func init() {
+	downloadCmd.Flags().StringVar(&downloadFileArg, "file", "", "File ID or name (auto-detected)")
 	downloadCmd.Flags().StringVar(&downloadFileID, "id", "", "File ID")
 	downloadCmd.Flags().StringVar(&downloadFileName, "file-name", "", "File name")
 	downloadCmd.Flags().StringVarP(&downloadOutput, "output", "o", ".", "Output directory or file path")
@@ -48,40 +50,20 @@ func runDownload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Run 'datadrop login' first")
 	}
 
-	if downloadFileID == "" && downloadFileName == "" {
-		return fmt.Errorf("either --id or --file-name is required")
+	identifier, err := getFileIdentifier(downloadFileID, downloadFileName, downloadFileArg, args)
+	if err != nil {
+		return err
 	}
 
 	client := api.NewClient(cfg)
 
-	resolvedID := downloadFileID
-	resolvedName := downloadFileName
-
-	if resolvedID == "" && resolvedName != "" {
-		fileInfo, err := resolveFileByNameWithInfo(client, resolvedName)
-		if err != nil {
-			return err
-		}
-		resolvedID = fileInfo.ID
-		resolvedName = fileInfo.FileName
+	fileInfo, err := resolveFileArgWithInfo(client, identifier)
+	if err != nil {
+		return err
 	}
 
-	// If we only have an ID, look up the name
-	if resolvedName == "" {
-		files, err := client.ListFiles()
-		if err != nil {
-			return fmt.Errorf("failed to list files: %w", err)
-		}
-		for _, f := range files {
-			if f.ID == resolvedID {
-				resolvedName = f.FileName
-				break
-			}
-		}
-		if resolvedName == "" {
-			resolvedName = resolvedID
-		}
-	}
+	resolvedID := fileInfo.ID
+	resolvedName := fileInfo.FileName
 
 	fmt.Printf("Fetching download URL for %s...\n", resolvedName)
 
@@ -157,7 +139,6 @@ func downloadFromURL(url, destPath string) error {
 	return err
 }
 
-// progressWriter wraps an io.Writer to track download progress
 type progressWriter struct {
 	writer     io.Writer
 	total      int64
