@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -100,5 +102,30 @@ func resolveFileByNameWithInfo(client *api.Client, name string) (*api.FileInfo, 
 
 // copyToClipboard copies text to the system clipboard.
 func copyToClipboard(text string) error {
-	return copyToClipboardOS(text)
+	switch runtime.GOOS {
+	case "darwin":
+		cmd := exec.Command("pbcopy")
+		cmd.Stdin = strings.NewReader(text)
+		return cmd.Run()
+	case "linux":
+		for _, tool := range []string{"xclip", "xsel"} {
+			if _, err := exec.LookPath(tool); err == nil {
+				var cmd *exec.Cmd
+				if tool == "xclip" {
+					cmd = exec.Command("xclip", "-selection", "clipboard")
+				} else {
+					cmd = exec.Command("xsel", "--clipboard", "--input")
+				}
+				cmd.Stdin = strings.NewReader(text)
+				return cmd.Run()
+			}
+		}
+		return fmt.Errorf("no clipboard tool found (install xclip or xsel)")
+	case "windows":
+		cmd := exec.Command("cmd", "/c", "clip")
+		cmd.Stdin = strings.NewReader(text)
+		return cmd.Run()
+	default:
+		return fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
+	}
 }
