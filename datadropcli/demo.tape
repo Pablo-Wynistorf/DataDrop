@@ -1,5 +1,7 @@
 # DataDrop CLI Demo
-# Generate with: vhs demo.tape
+# Generate with:
+#   1. Run `datadrop login` first in your real terminal
+#   2. Then run `vhs demo.tape`
 
 Output demo.gif
 
@@ -16,92 +18,86 @@ Set TypingSpeed 50ms
 # Show version
 Type "datadrop version"
 Enter
-Sleep 1s
+Sleep 2s
 
 # Show help
 Type "datadrop --help"
 Enter
-Sleep 3s
-
-# Login
-Type "datadrop login"
-Enter
-Sleep 2s
+Sleep 4s
 
 # Check login status
 Type "datadrop status"
 Enter
-Sleep 1.5s
-
-# Upload a private file with options
-Type "datadrop upload secret.pdf --type private --expires 86400 --max-downloads 5"
-Enter
 Sleep 3s
 
-# Upload a CDN file
-Type "datadrop upload image.png --type cdn"
+# Create test files
+Type "echo 'Hello from DataDrop CLI!' > demo-file.txt"
 Enter
-Sleep 3s
+Sleep 1s
 
-# Batch upload
-Type "datadrop upload *.txt"
+Type "echo 'Second file for batch demo' > demo-file2.txt"
 Enter
-Sleep 3s
+Sleep 1s
 
-# Upload and copy share URL to clipboard
-Type "datadrop upload notes.md --clipboard"
+# Upload a private file with expiry and download limit
+Type "datadrop upload demo-file.txt --type private --expires 86400 --max-downloads 10"
 Enter
-Sleep 3s
+Sleep 10s
 
-# List files
+# Upload second file
+Type "datadrop upload demo-file2.txt"
+Enter
+Sleep 10s
+
+# List all files
 Type "datadrop list"
-Enter
-Sleep 2s
-
-# Get file info
-Type "datadrop info notes.md"
-Enter
-Sleep 2s
-
-# Share a file with QR code
-Type "datadrop share notes.md --qr"
 Enter
 Sleep 4s
 
-# Get URL with expiry
-Type "datadrop get-url notes.md --expires 3600"
+# Show file info
+Type "datadrop info demo-file.txt"
 Enter
-Sleep 2s
+Sleep 4s
 
-# Download a file
-Type "datadrop download notes.md -o ~/Downloads/"
+# Share with QR code
+Type "datadrop share demo-file.txt --qr"
 Enter
-Sleep 3s
+Sleep 6s
+
+# Get URL with custom expiry
+Type "datadrop get-url demo-file.txt --expires 3600"
+Enter
+Sleep 4s
+
+# Download the file
+Type "datadrop download demo-file.txt -o /tmp/"
+Enter
+Sleep 10s
 
 # Rename a file
-Type "datadrop rename notes.md --name renamed.md"
+Type "datadrop rename demo-file2.txt --name renamed-demo.txt"
 Enter
-Sleep 2s
+Sleep 4s
 
-# Delete a file
-Type "datadrop delete renamed.md --force"
+# Delete the renamed file
+Type "datadrop delete renamed-demo.txt --force"
 Enter
-Sleep 2s
+Sleep 4s
 
-# Shell completion
-Type "datadrop completion zsh > /dev/null && echo '✓ Shell completion generated'"
-Enter
-Sleep 1.5s
-
-# Update CLI
+# Check for updates
 Type "datadrop update"
 Enter
-Sleep 2s
+Sleep 5s
 
 # Logout
 Type "datadrop logout"
 Enter
-Sleep 1.5s
+Sleep 3s
+
+# Clean up
+Type "rm -f demo-file.txt demo-file2.txt"
+Enter
+Sleep 1s
 
 Type "# That's DataDrop CLI! 🚀"
-Sleep 2s
+Sleep 3s
