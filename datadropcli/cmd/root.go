@@ -37,6 +37,8 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(getURLCmd)
 	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)
 }

@@ -368,6 +368,59 @@ func (c *Client) GetShareURL(fileID string, expiresInSeconds int) (*ShareRespons
 	return &result, nil
 }
 
+type DownloadResponse struct {
+	DownloadURL        string `json:"downloadUrl"`
+	FileName           string `json:"fileName"`
+	DownloadsRemaining *int   `json:"downloadsRemaining"`
+}
+
+// GetDownloadURL gets a presigned S3 download URL for a file.
+// It first creates a share token, extracts the JWT, then calls the download endpoint.
+func (c *Client) GetDownloadURL(fileID string) (*DownloadResponse, error) {
+	// Step 1: Get a share URL (short-lived, just to get the token)
+	shareResp, err := c.GetShareURL(fileID, 300)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get share URL: %w", err)
+	}
+
+	// CDN files have a direct URL
+	if shareResp.Type == "cdn" {
+		return &DownloadResponse{
+			DownloadURL: shareResp.ShareURL,
+		}, nil
+	}
+
+	// Step 2: Extract token from share URL (format: https://host/file?token=<jwt>)
+	token := ""
+	if idx := strings.Index(shareResp.ShareURL, "token="); idx != -1 {
+		token = shareResp.ShareURL[idx+len("token="):]
+	}
+	if token == "" {
+		return nil, fmt.Errorf("could not extract token from share URL")
+	}
+
+	// Step 3: Call the download endpoint to get a presigned S3 URL.
+	// The download endpoint is at /api/file/<token> (note: /file not /files).
+	// Since doRequest prepends c.baseURL (ending in /api), we use /file/<token>.
+	resp, err := c.doRequest("POST", "/file/"+token, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get download URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get download URL: %s - %s", resp.Status, string(body))
+	}
+
+	var result DownloadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
 func (c *Client) DeleteFile(fileID string) error {
 	resp, err := c.doRequest("DELETE", "/files/"+fileID, nil)
 	if err != nil {

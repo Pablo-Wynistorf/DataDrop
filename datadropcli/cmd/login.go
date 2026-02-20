@@ -21,7 +21,7 @@ var loginCmd = &cobra.Command{
 }
 
 func init() {
-	loginCmd.Flags().StringVar(&apiEndpoint, "api", "", "API endpoint URL (e.g., https://api.example.com)")
+	loginCmd.Flags().StringVar(&apiEndpoint, "api", "https://datadrop.onedns.ch", "API endpoint URL")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -37,18 +37,11 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Prompt for API endpoint if not provided
-	reader := bufio.NewReader(os.Stdin)
-
-	if apiEndpoint == "" {
-		if cfg != nil && cfg.APIEndpoint != "" {
-			apiEndpoint = cfg.APIEndpoint
-			fmt.Printf("Using saved API endpoint: %s\n", apiEndpoint)
-		} else {
-			fmt.Print("API endpoint URL: ")
-			apiEndpoint, _ = reader.ReadString('\n')
-			apiEndpoint = strings.TrimSpace(apiEndpoint)
-		}
+	// Use saved endpoint if user didn't explicitly pass --api
+	if cfg != nil && cfg.APIEndpoint != "" && !cmd.Flags().Changed("api") {
+		// Prefer saved endpoint over default if user didn't explicitly pass --api
+		apiEndpoint = cfg.APIEndpoint
+		fmt.Printf("Using saved API endpoint: %s\n", apiEndpoint)
 	}
 
 	// Perform login via browser
