@@ -150,6 +150,22 @@ resource "aws_s3_object" "frontend_favicon" {
   etag         = filemd5("${path.module}/../src/frontend/favicon.svg")
 }
 
+resource "aws_s3_object" "frontend_upload" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "upload"
+  source       = "${path.module}/../src/frontend/upload/index.html"
+  content_type = "text/html"
+  etag         = filemd5("${path.module}/../src/frontend/upload/index.html")
+}
+
+resource "aws_s3_object" "frontend_upload_js" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "js/upload.js"
+  source       = "${path.module}/../src/frontend/js/upload.js"
+  content_type = "application/javascript"
+  etag         = filemd5("${path.module}/../src/frontend/js/upload.js")
+}
+
 resource "aws_s3_object" "frontend_install_sh" {
   bucket       = aws_s3_bucket.frontend.id
   key          = "install.sh"

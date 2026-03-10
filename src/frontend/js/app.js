@@ -7,6 +7,8 @@ let currentEditFileData = null;
 let pendingUploadFile = null;
 let pendingUploadFiles = [];
 let allFiles = [];
+let allFolders = [];
+let currentFolder = '/';
 let currentTypeFilter = 'all';
 
 // Toast notification system
@@ -336,10 +338,197 @@ async function loadFiles() {
     if (res.ok) {
       const data = await res.json();
       allFiles = data.files;
+      buildFolderTree();
       applyFilters();
     }
   } catch (error) {
     console.error("Failed to load files:", error);
+  }
+}
+
+function buildFolderTree() {
+  const pathSet = new Set();
+  pathSet.add("/");
+  for (const file of allFiles) {
+    const fp = file.folderPath || "/";
+    if (fp === "/") continue;
+    const segments = fp.split("/").filter(Boolean);
+    let current = "";
+    for (const seg of segments) {
+      current += "/" + seg;
+      pathSet.add(current);
+    }
+  }
+  allFolders = Array.from(pathSet).sort();
+}
+
+function navigateToFolder(path) {
+  currentFolder = path || "/";
+  applyFilters();
+  renderBreadcrumb();
+}
+
+function renderBreadcrumb() {
+  const container = document.getElementById("folder-breadcrumb");
+  if (!container) return;
+
+  if (currentFolder === "/") {
+    container.innerHTML = `<span class="text-gray-400 text-sm flex items-center gap-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+      All Files</span>`;
+    return;
+  }
+
+  const segments = currentFolder.split("/").filter(Boolean);
+  let html = `<button onclick="navigateToFolder('/')" class="text-indigo-400 hover:text-indigo-300 text-sm flex items-center gap-1 transition">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+    All Files</button>`;
+
+  let path = "";
+  for (let i = 0; i < segments.length; i++) {
+    path += "/" + segments[i];
+    const isLast = i === segments.length - 1;
+    html += `<span class="text-gray-600 mx-1">/</span>`;
+    if (isLast) {
+      html += `<span class="text-gray-200 text-sm">${escapeHtml(segments[i])}</span>`;
+    } else {
+      html += `<button onclick="navigateToFolder('${path}')" class="text-indigo-400 hover:text-indigo-300 text-sm transition">${escapeHtml(segments[i])}</button>`;
+    }
+  }
+
+  container.innerHTML = html;
+}
+
+function getSubfoldersForCurrentPath() {
+  const prefix = currentFolder === "/" ? "/" : currentFolder + "/";
+  const subfolders = new Set();
+  for (const folder of allFolders) {
+    if (folder === currentFolder) continue;
+    if (currentFolder === "/") {
+      // Direct children of root: folders like "/foo" (one segment)
+      if (folder.startsWith("/") && !folder.slice(1).includes("/")) {
+        subfolders.add(folder);
+      }
+    } else {
+      if (folder.startsWith(prefix)) {
+        const remainder = folder.slice(prefix.length);
+        if (!remainder.includes("/")) {
+          subfolders.add(folder);
+        }
+      }
+    }
+  }
+  return Array.from(subfolders).sort();
+}
+
+function getFilesInCurrentFolder() {
+  return allFiles.filter(f => (f.folderPath || "/") === currentFolder);
+}
+
+async function createFolder() {
+  const name = prompt("Folder name:");
+  if (!name || !name.trim()) return;
+  const cleanName = name.trim().replace(/[/\\]/g, "");
+  if (!cleanName) return;
+
+  const newPath = currentFolder === "/" ? "/" + cleanName : currentFolder + "/" + cleanName;
+
+  // Create a virtual folder by moving a placeholder — but actually folders are implicit.
+  // We just need at least one file in it. For now, add it to the local list so it shows up.
+  if (!allFolders.includes(newPath)) {
+    allFolders.push(newPath);
+    allFolders.sort();
+  }
+  applyFilters();
+  showToast(`Folder "${cleanName}" created`, "success");
+}
+
+async function moveFileToFolder(fileId) {
+  const folderOptions = allFolders.map(f => f === "/" ? "/ (root)" : f).join("\n");
+  const target = prompt("Move to folder path:\n\nExisting folders:\n" + folderOptions, currentFolder);
+  if (target === null) return;
+
+  const targetPath = target.replace(" (root)", "").trim() || "/";
+
+  try {
+    const res = await fetch(`${API_URL}/folders/move-file`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ fileId, folderPath: targetPath })
+    });
+
+    if (res.ok) {
+      showToast("File moved", "success");
+      loadFiles();
+    } else {
+      const err = await res.json();
+      showToast(err.error || "Failed to move file", "error");
+    }
+  } catch (error) {
+    console.error("Move file error:", error);
+    showToast("Failed to move file", "error");
+  }
+}
+
+async function renameFolder(folderPath) {
+  const segments = folderPath.split("/").filter(Boolean);
+  const currentName = segments[segments.length - 1];
+  const newName = prompt("Rename folder:", currentName);
+  if (!newName || newName.trim() === currentName) return;
+
+  try {
+    const res = await fetch(`${API_URL}/folders/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ oldPath: folderPath, newName: newName.trim() })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (currentFolder === folderPath || currentFolder.startsWith(folderPath + "/")) {
+        currentFolder = data.newPath + currentFolder.slice(folderPath.length);
+      }
+      showToast("Folder renamed", "success");
+      loadFiles();
+    } else {
+      const err = await res.json();
+      showToast(err.error || "Failed to rename folder", "error");
+    }
+  } catch (error) {
+    console.error("Rename folder error:", error);
+    showToast("Failed to rename folder", "error");
+  }
+}
+
+async function deleteFolder(folderPath) {
+  const confirmed = await showConfirm(`Delete folder "${folderPath}"? Files will be moved to the parent folder.`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`${API_URL}/folders/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ folderPath })
+    });
+
+    if (res.ok) {
+      if (currentFolder === folderPath || currentFolder.startsWith(folderPath + "/")) {
+        const segments = folderPath.split("/").filter(Boolean);
+        segments.pop();
+        currentFolder = segments.length === 0 ? "/" : "/" + segments.join("/");
+      }
+      showToast("Folder deleted", "success");
+      loadFiles();
+    } else {
+      const err = await res.json();
+      showToast(err.error || "Failed to delete folder", "error");
+    }
+  } catch (error) {
+    console.error("Delete folder error:", error);
+    showToast("Failed to delete folder", "error");
   }
 }
 
@@ -348,6 +537,8 @@ function renderFiles(files) {
   const noFiles = document.getElementById("no-files");
   const noResults = document.getElementById("no-results");
 
+  renderBreadcrumb();
+
   if (!allFiles.length) {
     list.innerHTML = "";
     noFiles.classList.remove("hidden");
@@ -355,14 +546,49 @@ function renderFiles(files) {
     return;
   }
 
-  if (!files.length) {
+  // Get subfolders for current path
+  const subfolders = getSubfoldersForCurrentPath();
+
+  // Render subfolders
+  let html = subfolders.map(folder => {
+    const folderName = folder.split("/").filter(Boolean).pop();
+    const fileCount = allFiles.filter(f => (f.folderPath || "/") === folder || (f.folderPath || "/").startsWith(folder + "/")).length;
+    return `
+    <div class="file-row p-4 flex items-center justify-between cursor-pointer" onclick="navigateToFolder('${folder}')">
+      <div class="flex-1 min-w-0 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+          <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <p class="font-medium text-white truncate">${escapeHtml(folderName)}</p>
+          <p class="text-sm text-gray-500">${fileCount} file${fileCount !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 ml-4" onclick="event.stopPropagation()">
+        <button onclick="renameFolder('${folder}')" class="text-gray-400 hover:text-indigo-400 p-2 transition" title="Rename">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          </svg>
+        </button>
+        <button onclick="deleteFolder('${folder}')" class="text-gray-400 hover:text-red-400 p-2 transition" title="Delete folder">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>`;
+  }).join("");
+
+  if (!files.length && !subfolders.length) {
     list.innerHTML = "";
     return;
   }
 
   noFiles.classList.add("hidden");
   noResults.classList.add("hidden");
-  list.innerHTML = files.map(file => {
+  html += files.map(file => {
     const expiryInfo = getExpiryDisplay(file);
     const downloadInfo = getDownloadLimitDisplay(file);
     const editButton = file.uploadType === "private" ? `
@@ -403,6 +629,11 @@ function renderFiles(files) {
         <span class="px-2.5 py-1 text-xs rounded-lg font-medium ${file.status === 'uploaded' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}">
           ${file.status}
         </span>
+        <button onclick="moveFileToFolder('${file.id}')" class="text-gray-400 hover:text-yellow-400 p-2 transition" title="Move to folder">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+        </button>
         ${openButton}
         ${editButton}
         <button onclick='openShareModal(${JSON.stringify(file).replace(/'/g, "&#39;")})' class="text-gray-400 hover:text-indigo-400 p-2 transition" title="Share">
@@ -418,6 +649,8 @@ function renderFiles(files) {
       </div>
     </div>
   `}).join("");
+
+  list.innerHTML = html;
 }
 
 function getExpiryDisplay(file) {
@@ -1284,6 +1517,11 @@ function applyFilters() {
   const downloadsFilter = document.getElementById("filter-downloads")?.value || '';
   
   let filtered = allFiles.filter(file => {
+    // Folder filter — only show files in current folder
+    if ((file.folderPath || "/") !== currentFolder) {
+      return false;
+    }
+
     // Search filter
     if (searchQuery && !file.fileName.toLowerCase().includes(searchQuery)) {
       return false;
