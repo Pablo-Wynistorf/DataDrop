@@ -8,9 +8,18 @@ locals {
 
 data "aws_caller_identity" "lambda_api" {}
 
-resource "null_resource" "lambda_api_build_dir" {
+resource "null_resource" "lambda_api_build" {
+  triggers = {
+    always_run = timestamp()
+  }
+
   provisioner "local-exec" {
-    command = "mkdir -p ${local.lambda_api_build_dir}"
+    command     = "npm ci --omit=dev"
+    working_dir = "${path.module}/../src/lambda/api"
+  }
+
+  provisioner "local-exec" {
+    command = "mkdir -p ${local.lambda_api_build_dir} && cd ${path.module}/../src/lambda/api && zip -r ${abspath(local.lambda_api_build_dir)}/lambda-api.zip . -x '*.git*'"
   }
 }
 
@@ -56,7 +65,9 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = [
           aws_dynamodb_table.sessions.arn,
           aws_dynamodb_table.files.arn,
-          "${aws_dynamodb_table.files.arn}/index/*"
+          "${aws_dynamodb_table.files.arn}/index/*",
+          aws_dynamodb_table.upload_urls.arn,
+          "${aws_dynamodb_table.upload_urls.arn}/index/*"
         ]
       },
       {
@@ -80,26 +91,12 @@ resource "aws_iam_role_policy" "lambda" {
 # Build & package Lambda
 ############################
 
-resource "null_resource" "lambda_api_npm_install" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command     = "npm ci --omit=dev"
-    working_dir = "${path.module}/../src/lambda/api"
-  }
-}
-
 data "archive_file" "lambda_api_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../src/lambda/api"
   output_path = "${local.lambda_api_build_dir}/lambda-api.zip"
 
-  depends_on = [
-    null_resource.lambda_api_build_dir,
-    null_resource.lambda_api_npm_install
-  ]
+  depends_on = [null_resource.lambda_api_build]
 }
 
 ############################
@@ -148,6 +145,7 @@ resource "aws_lambda_function" "api" {
       FRONTEND_URL            = "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.main.domain_name}"
       JWT_SECRET              = var.jwt_secret
       FILE_DELETION_QUEUE_URL = aws_sqs_queue.file_deletion.url
+      UPLOAD_URLS_TABLE       = aws_dynamodb_table.upload_urls.name
     }
   }
 

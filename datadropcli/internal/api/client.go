@@ -451,3 +451,75 @@ func (c *Client) DeleteFile(fileID string) error {
 
 	return nil
 }
+
+// Upload URL types
+
+type CreateUploadURLRequest struct {
+	Name             string `json:"name"`
+	MaxFileSizeMB    int    `json:"maxFileSizeMB,omitempty"`
+	ExpiresInSeconds int    `json:"expiresInSeconds,omitempty"`
+	Description      string `json:"description,omitempty"`
+}
+
+type CreateUploadURLResponse struct {
+	ProjectID    string `json:"projectId"`
+	Name         string `json:"name"`
+	UploadURL    string `json:"uploadUrl"`
+	Token        string `json:"token"`
+	MaxFileSizeMB int   `json:"maxFileSizeMB"`
+	ExpiresAt    string `json:"expiresAt"`
+}
+
+type UploadURLProject struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	MaxFileSizeBytes int64  `json:"maxFileSizeBytes"`
+	CreatedAt        string `json:"createdAt"`
+	ExpiresAt        string `json:"expiresAt"`
+	FileCount        int    `json:"fileCount"`
+	TotalSize        int64  `json:"totalSize"`
+	IsExpired        bool   `json:"isExpired"`
+}
+
+func (c *Client) CreateUploadURL(req *CreateUploadURLRequest) (*CreateUploadURLResponse, error) {
+	resp, err := c.doRequest("POST", "/upload-urls", req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to create upload URL: %s - %s", resp.Status, string(body))
+	}
+
+	var result CreateUploadURLResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (c *Client) ListUploadURLs() ([]UploadURLProject, error) {
+	resp, err := c.doRequest("GET", "/upload-urls", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to list upload URLs: %s - %s", resp.Status, string(body))
+	}
+
+	var result struct {
+		Projects []UploadURLProject `json:"projects"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Projects, nil
+}

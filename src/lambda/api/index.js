@@ -5,7 +5,11 @@ import authRoutes from "./routes/auth.js";
 import uploadRoutes from "./routes/upload.js";
 import filesRoutes from "./routes/files.js";
 import downloadRoutes from "./routes/download.js";
+import foldersRoutes from "./routes/folders.js";
+import uploadUrlsRoutes from "./routes/uploadUrls.js";
+import publicUploadRoutes from "./routes/publicUpload.js";
 import { requireAuth } from "./middleware/auth.js";
+
 
 const app = express();
 
@@ -35,7 +39,12 @@ app.use("/api/auth", authRoutes);
 // Protected routes
 app.use("/api/upload", requireAuth, uploadRoutes);
 app.use("/api/files", requireAuth, filesRoutes);
+app.use("/api/folders", requireAuth, foldersRoutes);
+app.use("/api/upload-urls", requireAuth, uploadUrlsRoutes);
 app.use("/api/file", downloadRoutes);
+
+// Public routes (token-validated, no auth)
+app.use("/api/public-upload", publicUploadRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });

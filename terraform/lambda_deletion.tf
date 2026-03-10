@@ -8,9 +8,18 @@ locals {
 
 data "aws_caller_identity" "lambda_deletion" {}
 
-resource "null_resource" "lambda_deletion_build_dir" {
+resource "null_resource" "lambda_deletion_build" {
+  triggers = {
+    always_run = timestamp()
+  }
+
   provisioner "local-exec" {
-    command = "mkdir -p ${local.lambda_deletion_build_dir}"
+    command     = "npm ci --omit=dev"
+    working_dir = "${path.module}/../src/lambda/deletion"
+  }
+
+  provisioner "local-exec" {
+    command = "mkdir -p ${local.lambda_deletion_build_dir} && cd ${path.module}/../src/lambda/deletion && zip -r ${abspath(local.lambda_deletion_build_dir)}/lambda-deletion.zip . -x '*.git*'"
   }
 }
 
@@ -79,26 +88,12 @@ resource "aws_iam_role_policy" "lambda_deletion" {
 # Build & package Lambda
 ############################
 
-resource "null_resource" "lambda_deletion_npm_install" {
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command     = "npm ci --omit=dev"
-    working_dir = "${path.module}/../src/lambda/deletion"
-  }
-}
-
 data "archive_file" "lambda_deletion_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../src/lambda/deletion"
   output_path = "${local.lambda_deletion_build_dir}/lambda-deletion.zip"
 
-  depends_on = [
-    null_resource.lambda_deletion_build_dir,
-    null_resource.lambda_deletion_npm_install
-  ]
+  depends_on = [null_resource.lambda_deletion_build]
 }
 
 ############################

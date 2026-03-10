@@ -287,12 +287,16 @@ router.post("/:fileId/complete", async (req, res) => {
       TableName: FILES_TABLE,
       Key: { id: fileId },
       UpdateExpression: "SET #status = :status REMOVE multipartUploadId, partCount, partSize",
+      ConditionExpression: "userId = :userId",
       ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: { ":status": "ready" }
+      ExpressionAttributeValues: { ":status": "ready", ":userId": req.user.userId }
     }));
 
     res.json({ success: true, fileId });
   } catch (error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return res.status(403).json({ error: "Access denied" });
+    }
     console.error("Complete multipart error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -335,12 +339,16 @@ router.post("/:fileId/abort", async (req, res) => {
       TableName: FILES_TABLE,
       Key: { id: fileId },
       UpdateExpression: "SET #status = :status",
+      ConditionExpression: "userId = :userId",
       ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: { ":status": "aborted" }
+      ExpressionAttributeValues: { ":status": "aborted", ":userId": req.user.userId }
     }));
 
     res.json({ success: true });
   } catch (error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return res.status(403).json({ error: "Access denied" });
+    }
     console.error("Abort multipart error:", error);
     res.status(500).json({ error: "Internal server error" });
   }

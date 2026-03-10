@@ -26,6 +26,7 @@ router.get("/", async (req, res) => {
     // Add computed fields for display
     const files = (result.Items || []).map(file => ({
       ...file,
+      folderPath: file.folderPath || "/",
       // CDN files never expire
       expiresAt: file.uploadType === "cdn" ? null : file.expiresAt,
       isExpired: file.uploadType !== "cdn" && file.ttl && file.ttl < Math.floor(Date.now() / 1000),
@@ -56,12 +57,16 @@ router.post("/:fileId/confirm", async (req, res) => {
       TableName: FILES_TABLE,
       Key: { id: fileId },
       UpdateExpression: "SET #status = :status",
+      ConditionExpression: "userId = :userId",
       ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: { ":status": "uploaded" }
+      ExpressionAttributeValues: { ":status": "uploaded", ":userId": req.user.userId }
     }));
 
     res.json({ success: true });
   } catch (error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return res.status(403).json({ error: "Access denied" });
+    }
     console.error("Confirm upload error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -249,14 +254,14 @@ router.patch("/:fileId", async (req, res) => {
       TableName: FILES_TABLE,
       Key: { id: fileId },
       UpdateExpression: updateExpression,
+      ConditionExpression: "userId = :condUserId",
       ExpressionAttributeNames: expNames,
       ReturnValues: "ALL_NEW"
     };
     
-    // Only include ExpressionAttributeValues if there are values to set
-    if (Object.keys(expValues).length > 0) {
-      updateParams.ExpressionAttributeValues = expValues;
-    }
+    // Always include the condition value
+    expValues[":condUserId"] = req.user.userId;
+    updateParams.ExpressionAttributeValues = expValues;
 
     const result = await docClient.send(new UpdateCommand(updateParams));
 
@@ -270,9 +275,12 @@ router.patch("/:fileId", async (req, res) => {
         : null
     });
   } catch (error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return res.status(403).json({ error: "Access denied" });
+    }
     console.error("Edit file error:", error);
     console.error("Error stack:", error.stack);
-    res.status(500).json({ error: "Internal server error", details: error.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

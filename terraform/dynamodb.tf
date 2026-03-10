@@ -47,3 +47,32 @@ resource "aws_dynamodb_table" "files" {
   stream_enabled   = true
   stream_view_type = "OLD_IMAGE"
 }
+
+
+# Upload URLs table
+resource "aws_dynamodb_table" "upload_urls" {
+  name         = "${var.project_name}-upload-urls"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  attribute {
+    name = "userId"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "userId-index"
+    hash_key        = "userId"
+    projection_type = "ALL"
+  }
+
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+}

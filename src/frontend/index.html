@@ -121,7 +121,12 @@
             </svg>
             <span class="hidden sm:inline">CLI</span>
           </button>
-          <span id="user-name" class="text-gray-400 text-sm sm:text-base truncate max-w-[120px] sm:max-w-none"></span>
+          <button onclick="openCreateUploadURLModal()" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 transition" title="Create Upload URL">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+            </svg>
+            <span class="hidden sm:inline">Upload URL</span>
+          </button>
           <button onclick="logout()" class="text-red-400 hover:text-red-300 transition font-medium text-sm sm:text-base">Logout</button>
         </div>
       </div>
@@ -598,6 +603,62 @@
       </div>
     </div>
   </div>
+
+  <!-- Create Upload URL Modal -->
+    <div id="upload-url-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 modal-backdrop" onclick="if(event.target === this) closeCreateUploadURLModal()">
+      <div class="glass rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4 glow-border max-h-[90vh] overflow-y-auto modal-content">
+        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+          Create Upload URL
+        </h3>
+        <p class="text-sm text-gray-400 mb-4">Create a link that allows anyone to upload files to your account. Files will be stored in a folder named after the project.</p>
+
+        <div id="upload-url-form" class="space-y-4 mb-6">
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Project Name</label>
+            <input type="text" id="upload-url-name" placeholder="e.g. client-photos" class="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-3 py-2.5 text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+            <p class="text-xs text-gray-500 mt-1">Used as the folder name for uploaded files</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Max File Size (MB)</label>
+            <input type="number" id="upload-url-max-size" value="100" min="1" class="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-3 py-2.5 text-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Link Expiry</label>
+            <select id="upload-url-expiry" class="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-3 py-2.5 text-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+              <option value="3600">1 hour</option>
+              <option value="86400">1 day</option>
+              <option value="604800" selected>1 week</option>
+              <option value="2592000">30 days</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Description (optional)</label>
+            <input type="text" id="upload-url-description" placeholder="Instructions for uploaders" class="w-full bg-gray-800/50 border border-gray-600/50 rounded-lg px-3 py-2.5 text-gray-200 placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+          </div>
+          <button onclick="createUploadURL()" class="w-full btn-primary text-white font-semibold py-3 px-4 rounded-xl">Create Upload URL</button>
+        </div>
+
+        <div id="upload-url-result" class="hidden">
+          <div class="p-4 rounded-xl bg-green-500/10 border border-green-500/30 mb-4">
+            <p class="text-sm text-green-400 font-medium mb-2">Upload URL created!</p>
+            <div class="flex gap-2">
+              <input type="text" id="upload-url-value" class="flex-1 bg-gray-800/50 border border-gray-600/50 rounded-lg px-3 py-2 text-sm text-gray-200" readonly>
+              <button onclick="copyUploadURL()" class="bg-green-500/80 hover:bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition">Copy</button>
+            </div>
+            <p id="upload-url-expires" class="text-xs text-gray-500 mt-2"></p>
+            <p id="upload-url-max-info" class="text-xs text-gray-500"></p>
+          </div>
+          <button onclick="resetUploadURLForm()" class="w-full py-2 text-sm text-indigo-400 hover:text-indigo-300 transition">Create another</button>
+        </div>
+
+        <div class="flex justify-end mt-4">
+          <button onclick="closeCreateUploadURLModal()" class="px-4 py-2 text-gray-400 hover:text-gray-200 transition">Close</button>
+        </div>
+      </div>
+    </div>
 
   <script src="js/app.js"></script>
 </body>

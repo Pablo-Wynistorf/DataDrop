@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DataDrop - Upload</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            dark: { 50: '#f8fafc', 100: '#1e293b', 200: '#1a2234', 300: '#151c2c', 400: '#111827', 500: '#0d1321' },
+            accent: { 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-light { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
+    .glow-border { box-shadow: 0 0 20px rgba(99, 102, 241, 0.15), inset 0 0 20px rgba(99, 102, 241, 0.05); }
+    .gradient-bg { background: linear-gradient(135deg, #0d1321 0%, #1a1a2e 50%, #16213e 100%); }
+    .btn-primary { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); transition: all 0.3s ease; }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.5); }
+    .drop-zone-active { border-color: #6366f1 !important; background: rgba(99, 102, 241, 0.1) !important; }
+    .animate-float { animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-10px); } }
+    .spinner { border: 3px solid rgba(99, 102, 241, 0.2); border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast-enter { animation: slideIn 0.3s ease-out; }
+    .toast-exit { animation: slideOut 0.3s ease-in forwards; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+  </style>
+</head>
+<body class="gradient-bg min-h-screen text-gray-100">
+  <div class="fixed inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute top-1/4 -left-32 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 -right-32 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+  </div>
+
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+
+  <div class="container mx-auto px-4 py-8 max-w-lg relative z-10">
+    <!-- Loading -->
+    <div id="loading" class="glass rounded-3xl shadow-2xl p-8 text-center glow-border">
+      <div class="spinner w-12 h-12 mx-auto"></div>
+      <p class="mt-4 text-gray-400">Loading upload page...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-view" class="hidden glass rounded-3xl shadow-2xl p-8 text-center glow-border">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-red-500/20 flex items-center justify-center">
+        <svg class="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-semibold text-white mb-2">Error</h2>
+      <p id="error-message" class="text-gray-400"></p>
+    </div>
+
+    <!-- Upload Form -->
+    <div id="upload-view" class="hidden">
+      <div class="glass rounded-3xl shadow-2xl p-8 glow-border">
+        <div class="text-center mb-6">
+          <div class="animate-float w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-3">
+            <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+          </div>
+          <p class="text-gray-500 text-sm">DataDrop</p>
+          <h1 id="project-name" class="text-2xl font-bold text-white mt-2"></h1>
+          <p id="project-description" class="text-gray-400 mt-1 text-sm"></p>
+        </div>
+
+        <div class="glass-light rounded-xl p-4 mb-6 space-y-1 text-sm text-gray-400">
+          <p>Max file size: <span id="max-size" class="text-white font-medium"></span></p>
+          <p>Link expires: <span id="expires-at" class="text-white font-medium"></span></p>
+          <p>Files uploaded: <span id="file-count" class="text-white font-medium"></span></p>
+        </div>
+
+        <!-- Drop Zone -->
+        <div id="drop-zone" class="border-2 border-dashed border-gray-600/50 rounded-2xl p-8 text-center cursor-pointer hover:border-indigo-500/50 transition mb-4" onclick="document.getElementById('file-input').click()">
+          <svg class="w-10 h-10 mx-auto text-gray-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+          </svg>
+          <p class="text-gray-400">Drop files here or click to browse</p>
+          <p class="text-gray-600 text-sm mt-1">Select one or multiple files</p>
+          <input type="file" id="file-input" class="hidden" multiple onchange="handleFiles(event)">
+        </div>
+
+        <!-- Selected Files -->
+        <div id="selected-files" class="hidden mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm text-gray-400">Selected files:</p>
+            <button onclick="clearFiles()" class="text-xs text-gray-500 hover:text-gray-300 transition">Clear</button>
+          </div>
+          <div id="file-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
+          <div class="mt-3 flex items-center justify-between">
+            <p class="text-sm text-gray-400">Total: <span id="total-size" class="text-white"></span></p>
+            <button onclick="uploadAll()" class="btn-primary text-white font-semibold py-2.5 px-6 rounded-xl flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+              </svg>
+              Upload
+            </button>
+          </div>
+        </div>
+
+        <!-- Upload Progress -->
+        <div id="upload-progress" class="hidden">
+          <div class="glass-light rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <p id="progress-filename" class="text-sm text-white truncate flex-1 mr-2"></p>
+              <p id="progress-percent" class="text-sm text-indigo-400 font-medium"></p>
+            </div>
+            <div class="w-full bg-gray-700/50 rounded-full h-2">
+              <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between mt-1">
+              <span id="progress-speed" class="text-xs text-gray-500"></span>
+              <span id="progress-eta" class="text-xs text-gray-500"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Uploaded Files -->
+        <div id="uploaded-section" class="hidden mt-6">
+          <h3 class="text-sm font-medium text-gray-400 mb-2">Uploaded files</h3>
+          <div id="uploaded-list" class="space-y-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/upload.js"></script>
+</body>
+</html>

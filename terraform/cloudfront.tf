@@ -114,6 +114,26 @@ resource "aws_cloudfront_distribution" "main" {
     max_ttl     = 86400
   }
 
+  # Upload page - serve /upload as static page
+  ordered_cache_behavior {
+    path_pattern           = "/upload"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "frontend"
+    viewer_protocol_policy = "redirect-to-https"
+
+    forwarded_values {
+      query_string = true
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 3600
+    max_ttl     = 86400
+  }
+
   restrictions {
     geo_restriction {
       restriction_type = "none"

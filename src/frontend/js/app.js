@@ -1501,3 +1501,77 @@ function copyInstallCmd() {
     showToast("Failed to copy", "error");
   });
 }
+
+
+// ============ UPLOAD URL MANAGEMENT ============
+
+function openCreateUploadURLModal() {
+  document.getElementById("upload-url-modal").classList.remove("hidden");
+  document.getElementById("upload-url-form").classList.remove("hidden");
+  document.getElementById("upload-url-result").classList.add("hidden");
+}
+
+function closeCreateUploadURLModal() {
+  document.getElementById("upload-url-modal").classList.add("hidden");
+}
+
+function resetUploadURLForm() {
+  document.getElementById("upload-url-name").value = "";
+  document.getElementById("upload-url-max-size").value = "100";
+  document.getElementById("upload-url-expiry").value = "604800";
+  document.getElementById("upload-url-description").value = "";
+  document.getElementById("upload-url-form").classList.remove("hidden");
+  document.getElementById("upload-url-result").classList.add("hidden");
+}
+
+async function createUploadURL() {
+  const name = document.getElementById("upload-url-name").value.trim();
+  if (!name) {
+    showToast("Project name is required", "error");
+    return;
+  }
+
+  const maxFileSizeMB = parseInt(document.getElementById("upload-url-max-size").value) || 100;
+  const expiresInSeconds = parseInt(document.getElementById("upload-url-expiry").value) || 604800;
+  const description = document.getElementById("upload-url-description").value.trim();
+
+  try {
+    const res = await fetch(`${API_URL}/upload-urls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ name, maxFileSizeMB, expiresInSeconds, description })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      showToast(data.error || "Failed to create upload URL", "error");
+      return;
+    }
+
+    const data = await res.json();
+
+    document.getElementById("upload-url-value").value = data.uploadUrl;
+    document.getElementById("upload-url-expires").textContent = `Expires: ${new Date(data.expiresAt).toLocaleString()}`;
+    document.getElementById("upload-url-max-info").textContent = `Max file size: ${data.maxFileSizeMB} MB | Folder: /${data.name}`;
+
+    document.getElementById("upload-url-form").classList.add("hidden");
+    document.getElementById("upload-url-result").classList.remove("hidden");
+
+    showToast("Upload URL created!", "success");
+  } catch (error) {
+    console.error("Create upload URL failed:", error);
+    showToast("Failed to create upload URL", "error");
+  }
+}
+
+function copyUploadURL() {
+  const input = document.getElementById("upload-url-value");
+  navigator.clipboard.writeText(input.value).then(() => {
+    showToast("Upload URL copied to clipboard!", "success");
+  }).catch(() => {
+    input.select();
+    document.execCommand("copy");
+    showToast("Upload URL copied!", "success");
+  });
+}

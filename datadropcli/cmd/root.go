@@ -45,4 +45,6 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(createUploadURLCmd)
+	rootCmd.AddCommand(listUploadURLsCmd)
 }
