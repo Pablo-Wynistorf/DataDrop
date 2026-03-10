@@ -426,40 +426,68 @@ function getFilesInCurrentFolder() {
 }
 
 async function createFolder() {
-  const name = prompt("Folder name:");
-  if (!name || !name.trim()) return;
-  const cleanName = name.trim().replace(/[/\\]/g, "");
-  if (!cleanName) return;
+  document.getElementById("create-folder-name").value = "";
+  document.getElementById("create-folder-location").textContent = currentFolder === "/" ? "Will be created in: root" : `Will be created in: ${currentFolder}`;
+  document.getElementById("create-folder-modal").classList.remove("hidden");
+  setTimeout(() => document.getElementById("create-folder-name").focus(), 100);
+}
 
-  const newPath = currentFolder === "/" ? "/" + cleanName : currentFolder + "/" + cleanName;
+function closeCreateFolderModal() {
+  document.getElementById("create-folder-modal").classList.add("hidden");
+}
 
-  // Create a virtual folder by moving a placeholder — but actually folders are implicit.
-  // We just need at least one file in it. For now, add it to the local list so it shows up.
+function confirmCreateFolder() {
+  const name = document.getElementById("create-folder-name").value.trim().replace(/[/\\]/g, "");
+  if (!name) return;
+
+  const newPath = currentFolder === "/" ? "/" + name : currentFolder + "/" + name;
   if (!allFolders.includes(newPath)) {
     allFolders.push(newPath);
     allFolders.sort();
   }
+  closeCreateFolderModal();
   applyFilters();
-  showToast(`Folder "${cleanName}" created`, "success");
+  showToast(`Folder "${name}" created`, "success");
 }
 
-async function moveFileToFolder(fileId) {
-  const folderOptions = allFolders.map(f => f === "/" ? "/ (root)" : f).join("\n");
-  const target = prompt("Move to folder path:\n\nExisting folders:\n" + folderOptions, currentFolder);
-  if (target === null) return;
+let pendingMoveFileId = null;
 
-  const targetPath = target.replace(" (root)", "").trim() || "/";
+async function moveFileToFolder(fileId) {
+  pendingMoveFileId = fileId;
+  const file = allFiles.find(f => f.id === fileId);
+  const nameEl = document.getElementById("move-file-name");
+  nameEl.textContent = file ? file.fileName : fileId;
+
+  const select = document.getElementById("move-file-target");
+  select.innerHTML = allFolders.map(f => {
+    const label = f === "/" ? "/ (root)" : f;
+    const selected = (file?.folderPath || "/") === f ? " selected" : "";
+    return `<option value="${f}"${selected}>${escapeHtml(label)}</option>`;
+  }).join("");
+
+  document.getElementById("move-file-modal").classList.remove("hidden");
+}
+
+function closeMoveFileModal() {
+  document.getElementById("move-file-modal").classList.add("hidden");
+  pendingMoveFileId = null;
+}
+
+async function confirmMoveFile() {
+  if (!pendingMoveFileId) return;
+  const targetPath = document.getElementById("move-file-target").value;
 
   try {
     const res = await fetch(`${API_URL}/folders/move-file`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ fileId, folderPath: targetPath })
+      body: JSON.stringify({ fileId: pendingMoveFileId, folderPath: targetPath })
     });
 
     if (res.ok) {
       showToast("File moved", "success");
+      closeMoveFileModal();
       loadFiles();
     } else {
       const err = await res.json();
@@ -471,25 +499,49 @@ async function moveFileToFolder(fileId) {
   }
 }
 
+let pendingRenameFolderPath = null;
+
 async function renameFolder(folderPath) {
+  pendingRenameFolderPath = folderPath;
   const segments = folderPath.split("/").filter(Boolean);
   const currentName = segments[segments.length - 1];
-  const newName = prompt("Rename folder:", currentName);
-  if (!newName || newName.trim() === currentName) return;
+  document.getElementById("rename-folder-name").value = currentName;
+  document.getElementById("rename-folder-modal").classList.remove("hidden");
+  setTimeout(() => {
+    const input = document.getElementById("rename-folder-name");
+    input.focus();
+    input.select();
+  }, 100);
+}
+
+function closeRenameFolderModal() {
+  document.getElementById("rename-folder-modal").classList.add("hidden");
+  pendingRenameFolderPath = null;
+}
+
+async function confirmRenameFolder() {
+  if (!pendingRenameFolderPath) return;
+  const newName = document.getElementById("rename-folder-name").value.trim();
+  const segments = pendingRenameFolderPath.split("/").filter(Boolean);
+  if (!newName || newName === segments[segments.length - 1]) {
+    closeRenameFolderModal();
+    return;
+  }
 
   try {
     const res = await fetch(`${API_URL}/folders/rename`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ oldPath: folderPath, newName: newName.trim() })
+      body: JSON.stringify({ oldPath: pendingRenameFolderPath, newName })
     });
 
     if (res.ok) {
       const data = await res.json();
-      if (currentFolder === folderPath || currentFolder.startsWith(folderPath + "/")) {
-        currentFolder = data.newPath + currentFolder.slice(folderPath.length);
+      if (currentFolder === pendingRenameFolderPath || currentFolder.startsWith(pendingRenameFolderPath + "/")) {
+        currentFolder = data.newPath + currentFolder.slice(pendingRenameFolderPath.length);
       }
+      closeRenameFolderModal();
       showToast("Folder renamed", "success");
       loadFiles();
     } else {
