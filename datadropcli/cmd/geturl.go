@@ -99,10 +99,11 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to generate QR code: %w", err)
 		}
 		fmt.Println()
-		// ToString renders each module as two full-width characters by one line,
-		// which stays square in terminals. ToSmallString packs two rows per line
-		// using half-blocks and comes out rectangular on most terminals.
-		fmt.Println(qr.ToString(false))
+		// ToSmallString packs two module rows into each line using half-block
+		// characters. Since terminal cells are about twice as tall as they are
+		// wide, this keeps the code compact and roughly square. ToString uses one
+		// full line per row and renders far too large for long share URLs.
+		fmt.Println(qr.ToSmallString(false))
 	}
 
 	return nil

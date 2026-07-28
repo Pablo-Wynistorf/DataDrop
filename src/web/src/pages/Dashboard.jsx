@@ -168,17 +168,14 @@ export default function Dashboard() {
       if (file.cdnUrl) window.open(file.cdnUrl, "_blank", "noopener,noreferrer");
       return;
     }
-    // Private files need a short-lived signed link. Open a blank tab
-    // synchronously first so the popup blocker doesn't reject it after the
-    // async request resolves.
+    // Private files need a short-lived signed link (valid ~5 minutes). Open a
+    // blank tab synchronously first so the popup blocker doesn't reject it
+    // after the async request resolves.
     const tab = window.open("", "_blank", "noopener,noreferrer");
-    const { res, data } = await apiFetch(`/files/${file.id}/share`, {
-      method: "POST",
-      ...jsonBody({ expiresInSeconds: 3600 }),
-    });
-    if (res.ok && data?.shareUrl) {
-      if (tab) tab.location = data.shareUrl;
-      else window.open(data.shareUrl, "_blank", "noopener,noreferrer");
+    const { res, data } = await apiFetch(`/files/${file.id}/view`);
+    if (res.ok && data?.viewUrl) {
+      if (tab) tab.location = data.viewUrl;
+      else window.open(data.viewUrl, "_blank", "noopener,noreferrer");
     } else {
       if (tab) tab.close();
       toast(data?.error || "Failed to open file", "error");
@@ -319,6 +316,7 @@ export default function Dashboard() {
           filters={filters}
           setFilters={setFilters}
           onNavigate={setCurrentFolder}
+          onRefresh={loadFiles}
           onCreateFolder={() => setShowCreateFolder(true)}
           onRenameFolder={setRenameTarget}
           onDeleteFolder={deleteFolder}

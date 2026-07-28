@@ -206,6 +206,44 @@ router.get("/:fileId/download", async (req, res) => {
   }
 });
 
+// Owner inline view: returns a short-lived (5 min) presigned S3 URL that opens
+// the file inline in the browser. Intended for previewing a private file in a
+// new tab. Like the owner download it does not count against download limits.
+router.get("/:fileId/view", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    const file = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!file.Item || file.Item.userId !== req.user.userId) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const fileData = file.Item;
+
+    if (fileData.status !== "uploaded" && fileData.status !== "ready") {
+      return res.status(400).json({ error: "File is not ready to view" });
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: fileData.bucket,
+      Key: fileData.s3Key,
+      ResponseContentDisposition: `inline; filename="${fileData.fileName}"`,
+      ResponseContentType: fileData.fileType || "application/octet-stream"
+    });
+
+    const viewUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
+
+    res.json({ viewUrl, fileName: fileData.fileName });
+  } catch (error) {
+    console.error("Owner view error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Edit private file settings (expiry and download limit)
 router.patch("/:fileId", async (req, res) => {
   try {

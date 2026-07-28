@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Clock,
   Download,
+  Refresh,
 } from "../../components/icons.jsx";
 import FileIcon from "../../components/FileIcon.jsx";
 import { formatFileSize, formatDate } from "../../lib/format.js";
@@ -240,6 +241,7 @@ export default function FilesSection({
   filters,
   setFilters,
   onNavigate,
+  onRefresh,
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
@@ -252,6 +254,7 @@ export default function FilesSection({
   onDelete,
 }) {
   const [showFilters, setShowFilters] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const filterBtnRef = useRef(null);
   const [sort, setSort] = useState({ by: "name", dir: "asc" });
   const set = (patch) => setFilters({ ...filters, ...patch });
@@ -264,6 +267,16 @@ export default function FilesSection({
 
   const toggleSort = (by) =>
     setSort((s) => (s.by === by ? { by, dir: s.dir === "asc" ? "desc" : "asc" } : { by, dir: "asc" }));
+
+  const handleRefresh = async () => {
+    if (refreshing || !onRefresh) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const typeBtn = (key) =>
     `rounded-lg border px-3 py-1.5 text-sm transition ${
@@ -283,6 +296,15 @@ export default function FilesSection({
             <Breadcrumb currentFolder={currentFolder} onNavigate={onNavigate} />
           </div>
           <div className="flex flex-shrink-0 items-center gap-1">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60"
+              title="Refresh"
+            >
+              <Refresh className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
             <button
               onClick={onCreateFolder}
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"

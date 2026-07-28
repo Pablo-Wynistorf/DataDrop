@@ -77,6 +77,9 @@ export const Info = (props) => (
 export const Swap = (props) => (
   <Icon {...props}>{p("M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4")}</Icon>
 );
+export const Refresh = (props) => (
+  <Icon {...props}>{p("M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15")}</Icon>
+);
 
 // File-type + UI icons used by the file browser.
 export const Image = (props) => (
