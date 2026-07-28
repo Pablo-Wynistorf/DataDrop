@@ -100,7 +100,10 @@ func runCreateUploadURL(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to generate QR code: %w", err)
 		}
 		fmt.Println()
-		fmt.Println(qr.ToSmallString(false))
+		// ToString renders each module as two full-width characters by one line,
+		// which stays square in terminals. ToSmallString packs two rows per line
+		// using half-blocks and comes out rectangular on most terminals.
+		fmt.Println(qr.ToString(false))
 	}
 
 	return nil
