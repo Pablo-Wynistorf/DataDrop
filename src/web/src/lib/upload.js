@@ -63,7 +63,9 @@ export function putToS3(url, blob, contentType, onProgress) {
 // preserved on the server.
 export function computeFolderPath(baseFolder, file) {
   const base = baseFolder && baseFolder !== "/" ? baseFolder : "";
-  const rel = file.webkitRelativePath || "";
+  // webkitRelativePath is set by the folder picker; relativePathOverride is set
+  // by our drag-and-drop traversal. Both look like "folder/sub/file.ext".
+  const rel = file.webkitRelativePath || file.relativePathOverride || "";
   let sub = "";
   if (rel.includes("/")) sub = rel.slice(0, rel.lastIndexOf("/"));
   const combined = base + (sub ? "/" + sub : "");

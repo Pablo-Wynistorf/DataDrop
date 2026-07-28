@@ -5,14 +5,24 @@ import { formatFileSize, formatSpeed, formatETA } from "../../lib/format.js";
 
 async function filesFromDataTransfer(items) {
   const files = [];
-  async function traverse(entry) {
+  // `dir` is the folder path relative to the drop root (empty at the top level).
+  async function traverse(entry, dir) {
     if (entry.isFile) {
-      await new Promise((resolve) => entry.file((f) => (files.push(f), resolve())));
+      await new Promise((resolve) =>
+        entry.file((f) => {
+          // The drop API doesn't set webkitRelativePath, so record the path
+          // ourselves; computeFolderPath falls back to this.
+          if (dir) f.relativePathOverride = `${dir}/${entry.name}`;
+          files.push(f);
+          resolve();
+        })
+      );
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
+      const childDir = dir ? `${dir}/${entry.name}` : entry.name;
       await new Promise((resolve) =>
         reader.readEntries(async (entries) => {
-          for (const e of entries) await traverse(e);
+          for (const e of entries) await traverse(e, childDir);
           resolve();
         })
       );
@@ -20,7 +30,7 @@ async function filesFromDataTransfer(items) {
   }
   for (let i = 0; i < items.length; i++) {
     const entry = items[i].webkitGetAsEntry?.();
-    if (entry) await traverse(entry);
+    if (entry) await traverse(entry, "");
   }
   return files;
 }
