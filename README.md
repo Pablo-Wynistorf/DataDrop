@@ -48,7 +48,7 @@ The web interface provides a clean dashboard for managing files:
 Install with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pablo-wynistorf/datadrop/main/src/frontend/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pablo-wynistorf/datadrop/main/src/web/public/install.sh | bash
 ```
 
 Or download a binary from [Releases](https://github.com/pablo-wynistorf/datadrop/releases).

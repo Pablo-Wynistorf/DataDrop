@@ -5,6 +5,8 @@
   "scripts": {
     "install:api": "cd src/lambda/api && npm install",
     "install:deletion": "cd src/lambda/deletion && npm install",
+    "dev:web": "cd src/web && npm install && npm run dev",
+    "build:web": "cd src/web && npm ci && npm run build",
     "deploy": "cd terraform && terraform apply -auto-approve",
     "plan": "cd terraform && terraform plan",
     "init": "cd terraform && terraform init"

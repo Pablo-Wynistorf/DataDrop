@@ -9,7 +9,7 @@ A command-line tool for uploading, downloading, sharing, and managing files on D
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pablo-wynistorf/datadrop/main/src/frontend/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/pablo-wynistorf/datadrop/main/src/web/public/install.sh | bash
 ```
 
 Or download a binary from [Releases](https://github.com/pablo-wynistorf/datadrop/releases).
