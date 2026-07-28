@@ -68,6 +68,7 @@ type UploadRequest struct {
 	FileType         string `json:"fileType"`
 	FileSize         int64  `json:"fileSize"`
 	UploadType       string `json:"uploadType"`
+	FolderPath       string `json:"folderPath,omitempty"`
 	ExpiresInSeconds *int   `json:"expiresInSeconds,omitempty"`
 	MaxDownloads     *int   `json:"maxDownloads,omitempty"`
 }

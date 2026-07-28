@@ -36,6 +36,17 @@ var uploadCmd = &cobra.Command{
 	Short: "Upload files to DataDrop",
 	Long: `Upload one or more files to DataDrop.
 
+The destination folder is derived from the path you provide, so there's no
+folder flag to manage. Uploading a directory preserves its structure, and
+uploading a file via a relative path places it in a matching folder:
+
+  datadrop upload report.pdf              -> uploads to the root folder
+  datadrop upload reports/q1/data.csv     -> uploads to the /reports/q1 folder
+  datadrop upload ./photos                -> mirrors the photos/ tree
+
+Absolute paths (e.g. /Users/me/file.txt) upload to the root folder so your
+local filesystem layout isn't mirrored.
+
 Examples:
   datadrop upload myfile.txt
   datadrop upload myfile.txt --type private --expires 86400 --max-downloads 5
@@ -53,30 +64,78 @@ func init() {
 	uploadCmd.Flags().BoolVar(&clipboardFlag, "clipboard", false, "Copy share URL to clipboard after upload")
 }
 
-// expandPaths takes the raw args and expands directories into their files.
-func expandPaths(args []string) ([]string, error) {
-	var paths []string
+// uploadItem is a local file paired with the remote folder it should land in.
+type uploadItem struct {
+	path       string
+	folderPath string // "/" for root, otherwise "/segment/segment"
+}
+
+// folderFromRelPath turns a relative path like "reports/q1/data.csv" into the
+// folder it belongs to ("/reports/q1"). Files with no directory component, or
+// only "." / ".." segments, resolve to the root folder ("/").
+func folderFromRelPath(rel string) string {
+	rel = filepath.ToSlash(rel)
+	idx := strings.LastIndex(rel, "/")
+	if idx < 0 {
+		return "/"
+	}
+	var segs []string
+	for _, s := range strings.Split(rel[:idx], "/") {
+		if s == "" || s == "." || s == ".." {
+			continue
+		}
+		segs = append(segs, s)
+	}
+	if len(segs) == 0 {
+		return "/"
+	}
+	return "/" + strings.Join(segs, "/")
+}
+
+// expandPaths takes the raw args and expands them into individual files, each
+// paired with the folder it should be uploaded into. The folder is inferred
+// from the path the user provided so no extra flag is required:
+//   - a plain file name uploads to the root folder
+//   - a relative path (reports/q1/data.csv) mirrors its directories
+//   - a directory is walked recursively, preserving its structure
+//   - an absolute file path uploads to the root folder
+func expandPaths(args []string) ([]uploadItem, error) {
+	var items []uploadItem
 	for _, arg := range args {
 		info, err := os.Stat(arg)
 		if err != nil {
 			return nil, fmt.Errorf("not found: %s", arg)
 		}
 		if !info.IsDir() {
-			paths = append(paths, arg)
+			folder := "/"
+			if !filepath.IsAbs(arg) {
+				folder = folderFromRelPath(arg)
+			}
+			items = append(items, uploadItem{path: arg, folderPath: folder})
 			continue
 		}
-		// Walk directory (non-recursive, top-level files only)
-		entries, err := os.ReadDir(arg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read directory %s: %w", arg, err)
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				paths = append(paths, filepath.Join(arg, e.Name()))
+		// Directory: walk recursively and preserve the structure, rooted at the
+		// directory's own name (e.g. "photos/2024/pic.jpg" -> "/photos/2024").
+		parent := filepath.Dir(filepath.Clean(arg))
+		walkErr := filepath.WalkDir(arg, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, relErr := filepath.Rel(parent, p)
+			if relErr != nil {
+				rel = filepath.Base(p)
+			}
+			items = append(items, uploadItem{path: p, folderPath: folderFromRelPath(rel)})
+			return nil
+		})
+		if walkErr != nil {
+			return nil, fmt.Errorf("failed to read directory %s: %w", arg, walkErr)
 		}
 	}
-	return paths, nil
+	return items, nil
 }
 
 func runUpload(cmd *cobra.Command, args []string) error {
@@ -89,17 +148,17 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Run 'datadrop login' first")
 	}
 
-	filePaths, err := expandPaths(args)
+	items, err := expandPaths(args)
 	if err != nil {
 		return err
 	}
 
-	if len(filePaths) == 0 {
+	if len(items) == 0 {
 		return fmt.Errorf("no files to upload")
 	}
 
 	client := api.NewClient(cfg)
-	batch := len(filePaths) > 1
+	batch := len(items) > 1
 
 	type result struct {
 		name   string
@@ -109,15 +168,15 @@ func runUpload(cmd *cobra.Command, args []string) error {
 	}
 	var results []result
 
-	for i, filePath := range filePaths {
+	for i, item := range items {
 		if batch {
-			fmt.Printf("\n[%d/%d] ", i+1, len(filePaths))
+			fmt.Printf("\n[%d/%d] ", i+1, len(items))
 		}
 
-		fileID, cdnURL, err := uploadSingleFile(client, filePath)
-		results = append(results, result{filepath.Base(filePath), fileID, cdnURL, err})
+		fileID, cdnURL, err := uploadSingleFile(client, item.path, item.folderPath)
+		results = append(results, result{filepath.Base(item.path), fileID, cdnURL, err})
 		if err != nil {
-			fmt.Printf("✗ %s: %v\n", filepath.Base(filePath), err)
+			fmt.Printf("✗ %s: %v\n", filepath.Base(item.path), err)
 		}
 	}
 
@@ -154,7 +213,7 @@ func runUpload(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func uploadSingleFile(client *api.Client, filePath string) (string, *string, error) {
+func uploadSingleFile(client *api.Client, filePath, folderPath string) (string, *string, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return "", nil, fmt.Errorf("file not found: %w", err)
@@ -183,6 +242,9 @@ func uploadSingleFile(client *api.Client, filePath string) (string, *string, err
 		FileSize:   fileSize,
 		UploadType: uploadType,
 	}
+	if folderPath != "" && folderPath != "/" {
+		uploadReq.FolderPath = folderPath
+	}
 
 	if uploadType == "private" {
 		if expiresInSeconds > 0 {
@@ -193,7 +255,11 @@ func uploadSingleFile(client *api.Client, filePath string) (string, *string, err
 		}
 	}
 
-	fmt.Printf("Uploading %s (%s)...\n", name, formatSize(fileSize))
+	if folderPath != "" && folderPath != "/" {
+		fmt.Printf("Uploading %s (%s) → %s...\n", name, formatSize(fileSize), folderPath)
+	} else {
+		fmt.Printf("Uploading %s (%s)...\n", name, formatSize(fileSize))
+	}
 
 	uploadResp, err := client.GetUploadURL(uploadReq)
 	if err != nil {

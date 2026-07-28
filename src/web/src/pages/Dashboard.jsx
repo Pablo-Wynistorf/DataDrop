@@ -3,7 +3,7 @@ import Background from "../components/Background.jsx";
 import Logo from "../components/Logo.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { ConfirmDialog } from "../components/Modal.jsx";
-import { Terminal, Link } from "../components/icons.jsx";
+import { Terminal, Link, LogOut } from "../components/icons.jsx";
 import { API_URL, apiFetch, jsonBody } from "../lib/api.js";
 import { UploadTracker, putToS3, uploadAuthedFile, computeFolderPath } from "../lib/upload.js";
 import { makeEmptyFilters } from "../lib/fileFilters.js";
@@ -117,7 +117,8 @@ export default function Dashboard() {
   }
 
   async function runUploads(selectedFiles, opts) {
-    const uploadOpts = { ...opts, baseFolder: currentFolder };
+    // The panel resolves an explicit destination; fall back to the current folder.
+    const uploadOpts = { ...opts, baseFolder: opts.destFolder || currentFolder };
     const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
 
     if (selectedFiles.length === 1) {
@@ -160,6 +161,45 @@ export default function Dashboard() {
     if (failed.length === 0) toast(`All ${success} files uploaded successfully!`, "success");
     else if (success > 0) toast(`${success} files uploaded, ${failed.length} failed`, "warning", 6000);
     else toast("All uploads failed", "error", 6000);
+  }
+
+  async function openFile(file) {
+    if (file.uploadType === "cdn") {
+      if (file.cdnUrl) window.open(file.cdnUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    // Private files need a short-lived signed link. Open a blank tab
+    // synchronously first so the popup blocker doesn't reject it after the
+    // async request resolves.
+    const tab = window.open("", "_blank", "noopener,noreferrer");
+    const { res, data } = await apiFetch(`/files/${file.id}/share`, {
+      method: "POST",
+      ...jsonBody({ expiresInSeconds: 3600 }),
+    });
+    if (res.ok && data?.shareUrl) {
+      if (tab) tab.location = data.shareUrl;
+      else window.open(data.shareUrl, "_blank", "noopener,noreferrer");
+    } else {
+      if (tab) tab.close();
+      toast(data?.error || "Failed to open file", "error");
+    }
+  }
+
+  async function downloadFile(file) {
+    const { res, data } = await apiFetch(`/files/${file.id}/download`);
+    if (!res.ok || !data?.downloadUrl) {
+      toast(data?.error || "Failed to download file", "error");
+      return;
+    }
+    // The presigned URL carries a content-disposition of attachment, so a
+    // simple anchor click triggers a direct download without a popup.
+    const a = document.createElement("a");
+    a.href = data.downloadUrl;
+    a.download = data.fileName || file.fileName || "";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   function deleteFile(file) {
@@ -232,37 +272,45 @@ export default function Dashboard() {
       <Background />
       <div className="container relative z-10 mx-auto max-w-4xl px-4 py-8">
         {/* Header */}
-        <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+        <header className="mb-8 flex items-center justify-between gap-3">
           <Logo />
-          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-4">
+          <div className="flex items-center gap-1 sm:gap-2">
             {user && (
-              <span className="hidden max-w-[150px] truncate text-sm text-slate-500 sm:inline">
-                {user.name || user.email}
-              </span>
+              <div className="hidden items-center gap-2 pr-1 sm:flex">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700">
+                  {(user.name || user.email || "?").charAt(0).toUpperCase()}
+                </div>
+                <span className="max-w-[140px] truncate text-sm font-medium text-slate-600">
+                  {user.name || user.email}
+                </span>
+              </div>
             )}
-            <button
-              onClick={() => setShowCli(true)}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-              title="Download CLI"
-            >
+            <span className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
+            <button onClick={() => setShowCli(true)} className="header-action" title="Download CLI">
               <Terminal className="h-4 w-4" />
               <span className="hidden sm:inline">CLI</span>
             </button>
-            <button
-              onClick={() => setShowUploadUrl(true)}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-              title="Create Upload URL"
-            >
+            <button onClick={() => setShowUploadUrl(true)} className="header-action" title="Create Upload URL">
               <Link className="h-4 w-4" />
               <span className="hidden sm:inline">Upload URL</span>
             </button>
-            <button onClick={logout} className="text-sm font-medium text-rose-500 transition hover:text-rose-600">
-              Logout
+            <button
+              onClick={logout}
+              className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-rose-500 transition-colors hover:bg-rose-50 hover:text-rose-600"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
-        </div>
+        </header>
 
-        <UploadPanel onStartUpload={runUploads} progress={progress} />
+        <UploadPanel
+          onStartUpload={runUploads}
+          progress={progress}
+          folders={folders}
+          currentFolder={currentFolder}
+        />
 
         <FilesSection
           allFiles={files}
@@ -276,6 +324,8 @@ export default function Dashboard() {
           onDeleteFolder={deleteFolder}
           onMoveFile={setMoveFile}
           onEdit={setEditFile}
+          onOpen={openFile}
+          onDownload={downloadFile}
           onShare={setShareFile}
           onConvert={setConvertFile}
           onDelete={deleteFile}

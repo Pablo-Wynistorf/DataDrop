@@ -6,9 +6,18 @@ const COMMANDS = [
   ["logout", "Remove stored credentials"],
   ["status", "Show login status"],
   ["upload", "Upload a file"],
+  ["download", "Download a file"],
   ["list", "List all files"],
+  ["info", "Show detailed file information"],
   ["get-url", "Get shareable URL"],
+  ["rename", "Rename a file"],
+  ["convert", "Convert between private and CDN storage"],
   ["delete", "Delete a file"],
+  ["create-upload-url", "Create an upload URL for external users"],
+  ["list-upload-urls", "List your upload URL projects"],
+  ["delete-upload-url", "Delete an upload URL project"],
+  ["update", "Update the CLI to the latest version"],
+  ["completion", "Generate shell completion script"],
 ];
 
 export function CliModal({ onClose, toast }) {

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Folder,
   FolderPlus,
@@ -66,49 +67,145 @@ function Breadcrumb({ currentFolder, onNavigate }) {
   );
 }
 
-// A hover/click overflow menu, keeping row actions out of the way until needed.
+// An overflow menu of row actions. The dropdown is rendered in a portal with
+// fixed positioning so it is never clipped by the card's overflow-hidden, and
+// it flips upward when there isn't room below.
+const MENU_WIDTH = 192; // w-48
+const MENU_ITEM_HEIGHT = 40;
+
 function RowMenu({ items }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const position = () => {
+    if (!btnRef.current) return;
+    const r = btnRef.current.getBoundingClientRect();
+    const estHeight = items.length * MENU_ITEM_HEIGHT + 8;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const top = spaceBelow < estHeight + 8 ? Math.max(8, r.top - 4 - estHeight) : r.bottom + 4;
+    const left = Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8);
+    setCoords({ top, left });
+  };
+
+  useLayoutEffect(() => {
+    if (open) position();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (
+        btnRef.current && !btnRef.current.contains(e.target) &&
+        menuRef.current && !menuRef.current.contains(e.target)
+      ) {
+        setOpen(false);
+      }
     };
+    const close = () => setOpen(false);
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [open]);
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
+        ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         title="More actions"
-        className={`rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 ${open ? "bg-slate-100 text-slate-700" : ""}`}
+        className={`rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 ${open ? "bg-slate-100 text-slate-700" : ""}`}
       >
         <More className="h-5 w-5" />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-lg ring-1 ring-slate-900/5">
-          {items.map((it) => (
-            <button
-              key={it.label}
-              onClick={() => {
-                setOpen(false);
-                it.onClick();
-              }}
-              className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition hover:bg-slate-50 ${
-                it.danger ? "text-rose-600 hover:bg-rose-50" : "text-slate-700"
-              }`}
-            >
-              <span className={it.danger ? "text-rose-500" : "text-slate-400"}>{it.icon}</span>
-              {it.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: MENU_WIDTH }}
+            className="z-50 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-lg ring-1 ring-slate-900/5"
+          >
+            {items.map((it) => (
+              <button
+                key={it.label}
+                onClick={() => {
+                  setOpen(false);
+                  it.onClick();
+                }}
+                className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-slate-50 ${
+                  it.danger ? "text-rose-600 hover:bg-rose-50" : "text-slate-700"
+                }`}
+              >
+                <span className={it.danger ? "text-rose-500" : "text-slate-400"}>{it.icon}</span>
+                {it.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+// The filter panel rendered as a floating popover. It is anchored to the
+// Filter button and rendered in a portal with fixed positioning so it overlays
+// the content instead of pushing it down, and is never clipped by the card's
+// overflow-hidden. It flips/pins to stay within the viewport.
+const FILTER_WIDTH = 320;
+
+function FilterPopover({ anchorRef, onClose, children }) {
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+  const panelRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!anchorRef.current) return;
+    const r = anchorRef.current.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(8, r.right - FILTER_WIDTH),
+      window.innerWidth - FILTER_WIDTH - 8
+    );
+    setCoords({ top: r.bottom + 8, left });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (
+        anchorRef.current && !anchorRef.current.contains(e.target) &&
+        panelRef.current && !panelRef.current.contains(e.target)
+      ) {
+        onClose();
+      }
+    };
+    const onKey = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [anchorRef, onClose]);
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      style={{ position: "fixed", top: coords.top, left: coords.left, width: FILTER_WIDTH }}
+      className="z-50 max-h-[80vh] space-y-4 overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4 shadow-xl ring-1 ring-slate-900/5"
+    >
+      {children}
+    </div>,
+    document.body
   );
 }
 
@@ -148,11 +245,14 @@ export default function FilesSection({
   onDeleteFolder,
   onMoveFile,
   onEdit,
+  onOpen,
+  onDownload,
   onShare,
   onConvert,
   onDelete,
 }) {
   const [showFilters, setShowFilters] = useState(false);
+  const filterBtnRef = useRef(null);
   const [sort, setSort] = useState({ by: "name", dir: "asc" });
   const set = (patch) => setFilters({ ...filters, ...patch });
   const activeCount = countActiveFilters(filters);
@@ -178,23 +278,29 @@ export default function FilesSection({
     <div className="card overflow-hidden">
       {/* Toolbar */}
       <div className="border-b border-slate-100 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <Breadcrumb currentFolder={currentFolder} onNavigate={onNavigate} />
-          <div className="flex items-center gap-1.5">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <Breadcrumb currentFolder={currentFolder} onNavigate={onNavigate} />
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-1">
             <button
               onClick={onCreateFolder}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+              title="New folder"
             >
-              <FolderPlus className="h-4 w-4" /> New folder
+              <FolderPlus className="h-4 w-4" />
+              <span className="hidden sm:inline">New folder</span>
             </button>
             <button
+              ref={filterBtnRef}
               onClick={() => setShowFilters((s) => !s)}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition hover:bg-slate-100 ${
-                activeCount > 0 ? "text-brand-600" : "text-slate-600 hover:text-slate-900"
-              }`}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition hover:bg-slate-100 ${
+                showFilters || activeCount > 0 ? "text-brand-600" : "text-slate-600 hover:text-slate-900"
+              } ${showFilters ? "bg-brand-50" : ""}`}
+              title="Filter"
             >
               <Filter className="h-4 w-4" />
-              Filter
+              <span className="hidden sm:inline">Filter</span>
               {activeCount > 0 && (
                 <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-xs text-white">{activeCount}</span>
               )}
@@ -213,7 +319,15 @@ export default function FilesSection({
         </div>
 
         {showFilters && (
-          <div className="mt-4 space-y-4 rounded-xl bg-slate-50 p-4">
+          <FilterPopover anchorRef={filterBtnRef} onClose={() => setShowFilters(false)}>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-700">Filters</span>
+              {activeCount > 0 && (
+                <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                  {activeCount} active
+                </span>
+              )}
+            </div>
             <div>
               <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Upload Type</label>
               <div className="flex gap-2">
@@ -240,7 +354,7 @@ export default function FilesSection({
             <button onClick={() => setFilters(makeEmptyFilters())} className="w-full py-2 text-sm text-slate-500 transition hover:text-slate-800">
               Clear all filters
             </button>
-          </div>
+          </FilterPopover>
         )}
       </div>
 
@@ -323,6 +437,8 @@ export default function FilesSection({
             menuItems.push({ label: "Open in new tab", icon: <External className="h-4 w-4" />, onClick: () => window.open(file.cdnUrl, "_blank") });
           if (!isCdn)
             menuItems.push({ label: "Edit settings", icon: <Pencil className="h-4 w-4" />, onClick: () => onEdit(file) });
+          if (file.status === "uploaded" || file.status === "ready")
+            menuItems.push({ label: "Download", icon: <Download className="h-4 w-4" />, onClick: () => onDownload(file) });
           menuItems.push({ label: "Share", icon: <Share className="h-4 w-4" />, onClick: () => onShare(file) });
           menuItems.push({ label: "Move to folder", icon: <Folder className="h-4 w-4" />, onClick: () => onMoveFile(file) });
           menuItems.push({
@@ -338,7 +454,14 @@ export default function FilesSection({
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="truncate font-medium text-slate-900">{file.fileName}</p>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(file)}
+                    title="Open in new tab"
+                    className="truncate text-left font-medium text-slate-900 transition hover:text-brand-600 hover:underline"
+                  >
+                    {file.fileName}
+                  </button>
                   {file.status !== "uploaded" && (
                     <span className="flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-600">
                       {file.status}

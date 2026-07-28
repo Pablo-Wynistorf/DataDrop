@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
-import { S3Client, CopyObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, CopyObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import jwt from "jsonwebtoken";
@@ -164,6 +165,43 @@ router.post("/:fileId/share", async (req, res) => {
     });
   } catch (error) {
     console.error("Create share link error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Owner direct download: returns a short-lived presigned S3 URL that forces an
+// attachment download. Unlike the public token flow this does not count against
+// the file's download limit, since the owner is fetching their own file.
+router.get("/:fileId/download", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+
+    const file = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!file.Item || file.Item.userId !== req.user.userId) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const fileData = file.Item;
+
+    if (fileData.status !== "uploaded" && fileData.status !== "ready") {
+      return res.status(400).json({ error: "File is not ready to download" });
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: fileData.bucket,
+      Key: fileData.s3Key,
+      ResponseContentDisposition: `attachment; filename="${fileData.fileName}"`
+    });
+
+    const downloadUrl = await getSignedUrl(s3Client, command, { expiresIn: 300 });
+
+    res.json({ downloadUrl, fileName: fileData.fileName });
+  } catch (error) {
+    console.error("Owner download error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

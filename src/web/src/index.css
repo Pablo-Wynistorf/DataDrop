@@ -38,22 +38,43 @@ body {
   .label {
     @apply mb-2 block text-sm font-medium text-slate-600;
   }
+
+  /* Compact action buttons used in the dashboard header. Icon-only on small
+     screens, icon + label from sm up. */
+  .header-action {
+    @apply flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900;
+  }
 }
 
 /* Scrollbar */
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(37, 99, 235, 0.25) transparent;
+}
+
+/* WebKit (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(37, 99, 235, 0.2);
-  border-radius: 4px;
+  background: rgba(37, 99, 235, 0.25);
+  border-radius: 9999px;
+  /* Transparent border + background-clip keeps the thumb inset so it reads as a
+     clean rounded pill instead of touching the container edges/corners. */
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.4);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .spinner {

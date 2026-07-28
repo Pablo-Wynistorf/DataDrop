@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Modal, { ConfirmDialog } from "../../components/Modal.jsx";
-import { Link, Copy, Trash } from "../../components/icons.jsx";
+import { Link, Copy, Trash, Check, Clock, Folder, UploadCloud } from "../../components/icons.jsx";
 import { apiFetch, jsonBody } from "../../lib/api.js";
 import { formatFileSize } from "../../lib/format.js";
 
@@ -54,8 +54,9 @@ export default function UploadUrlModal({ onClose, toast }) {
     }
     setResult({
       url: data.uploadUrl,
-      expires: `Expires: ${new Date(data.expiresAt).toLocaleString()}`,
-      max: `Max file size: ${data.maxFileSizeMB} MB - Folder: /${data.name}`,
+      expires: new Date(data.expiresAt).toLocaleString(),
+      maxSize: `${data.maxFileSizeMB} MB`,
+      folder: `/${data.name}`,
     });
     toast("Upload URL created", "success");
     load();
@@ -205,18 +206,41 @@ export default function UploadUrlModal({ onClose, toast }) {
       {tab === "create" && result && (
         <div>
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-            <p className="mb-2 text-sm font-medium text-emerald-700">Upload URL created</p>
-            <div className="flex gap-2">
-              <input readOnly value={result.url} className="field flex-1 text-sm" />
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <Check className="h-4 w-4" />
+              </span>
+              <p className="text-sm font-semibold text-emerald-700">Upload URL created</p>
+            </div>
+            <div className="flex items-stretch gap-2">
+              <input
+                readOnly
+                value={result.url}
+                onFocus={(e) => e.target.select()}
+                className="field flex-1 text-sm"
+              />
               <button
                 onClick={() => copy(result.url, "Upload URL")}
-                className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-4 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
               >
+                <Copy className="h-4 w-4" />
                 Copy
               </button>
             </div>
-            <p className="mt-2 text-xs text-slate-400">{result.expires}</p>
-            <p className="text-xs text-slate-400">{result.max}</p>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-emerald-200/70 pt-3 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5 text-slate-400" />
+                Expires {result.expires}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Folder className="h-3.5 w-3.5 text-slate-400" />
+                {result.folder}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <UploadCloud className="h-3.5 w-3.5 text-slate-400" />
+                Max {result.maxSize}
+              </span>
+            </div>
           </div>
           <button
             onClick={() => {

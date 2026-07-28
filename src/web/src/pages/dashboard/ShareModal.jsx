@@ -37,16 +37,23 @@ export default function ShareModal({ file, onClose, toast }) {
   return (
     <Modal open onClose={onClose} title="Share File" icon={<Share className="h-5 w-5 text-brand-600" />}>
       {isCdn ? (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="mb-2 flex items-center gap-2 text-sm font-medium text-emerald-700">
-            <Globe className="h-4 w-4" /> Public CDN Link
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-5">
+          <div className="mb-4 flex items-center gap-2 text-emerald-700">
+            <Globe className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-semibold">Public CDN Link</span>
+          </div>
+          <p className="mb-4 text-xs leading-relaxed text-emerald-700/70">
+            This file is publicly accessible. The link never expires.
           </p>
-          <p className="mb-3 text-xs text-emerald-600/80">This file is publicly accessible. The link never expires.</p>
-          <div className="flex gap-2">
-            <input readOnly value={file.cdnUrl || ""} className="field flex-1 text-sm" />
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={file.cdnUrl || ""}
+              className="min-w-0 flex-1 truncate rounded-lg border border-emerald-200 bg-white px-3 py-2 font-mono text-sm text-slate-600 focus:outline-none"
+            />
             <button
               onClick={() => copy(file.cdnUrl || "", "CDN link")}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-600"
+              className="shrink-0 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-600"
             >
               Copy
             </button>

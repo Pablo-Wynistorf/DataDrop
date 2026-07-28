@@ -3,43 +3,76 @@ import ExpirySelector from "../../components/ExpirySelector.jsx";
 import { UploadCloud, Close, Doc, Folder, Globe, Lock } from "../../components/icons.jsx";
 import { formatFileSize, formatSpeed, formatETA } from "../../lib/format.js";
 
+// readEntries only returns a batch (max ~100) per call, so keep reading until
+// it reports an empty batch to capture every child of a directory.
+function readAllEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const readBatch = () =>
+      reader.readEntries((batch) => {
+        if (!batch.length) resolve(all);
+        else {
+          all.push(...batch);
+          readBatch();
+        }
+      }, reject);
+    readBatch();
+  });
+}
+
 async function filesFromDataTransfer(items) {
+  // webkitGetAsEntry() must be called synchronously for every item before we
+  // await anything: the DataTransferItemList is emptied once the drop handler
+  // yields, so grabbing the entries first is what makes multi-item drops work.
+  const rootEntries = [];
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry?.();
+    if (entry) rootEntries.push(entry);
+  }
+
   const files = [];
   // `dir` is the folder path relative to the drop root (empty at the top level).
   async function traverse(entry, dir) {
     if (entry.isFile) {
-      await new Promise((resolve) =>
-        entry.file((f) => {
-          // The drop API doesn't set webkitRelativePath, so record the path
-          // ourselves; computeFolderPath falls back to this.
-          if (dir) f.relativePathOverride = `${dir}/${entry.name}`;
-          files.push(f);
-          resolve();
-        })
-      );
+      const f = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      // The drop API doesn't set webkitRelativePath, so record the path
+      // ourselves; computeFolderPath falls back to this.
+      if (dir) f.relativePathOverride = `${dir}/${entry.name}`;
+      files.push(f);
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
       const childDir = dir ? `${dir}/${entry.name}` : entry.name;
-      await new Promise((resolve) =>
-        reader.readEntries(async (entries) => {
-          for (const e of entries) await traverse(e, childDir);
-          resolve();
-        })
-      );
+      const entries = await readAllEntries(reader);
+      for (const e of entries) await traverse(e, childDir);
     }
   }
-  for (let i = 0; i < items.length; i++) {
-    const entry = items[i].webkitGetAsEntry?.();
-    if (entry) await traverse(entry, "");
-  }
+
+  for (const entry of rootEntries) await traverse(entry, "");
   return files;
 }
 
-export default function UploadPanel({ onStartUpload, progress }) {
+// Combine a base folder with an optional new subfolder/path the user typed.
+function resolveDestFolder(base, newFolder) {
+  const nf = (newFolder || "").trim();
+  if (!nf) return base || "/";
+  const segments = nf.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (!segments.length) return base || "/";
+  // A leading slash means an absolute path from root; otherwise append to base.
+  if (nf.startsWith("/") || !base || base === "/") return "/" + segments.join("/");
+  return base + "/" + segments.join("/");
+}
+
+function folderLabel(f) {
+  return f === "/" ? "Home (/)" : f;
+}
+
+export default function UploadPanel({ onStartUpload, progress, folders = ["/"], currentFolder = "/" }) {
   const [selected, setSelected] = useState([]);
   const [type, setType] = useState("cdn");
   const [expiry, setExpiry] = useState({ mode: "preset", preset: "86400", datetime: "" });
   const [maxDownloads, setMaxDownloads] = useState("");
+  const [destFolder, setDestFolder] = useState(currentFolder);
+  const [newFolder, setNewFolder] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef(null);
   const folderRef = useRef(null);
@@ -48,16 +81,20 @@ export default function UploadPanel({ onStartUpload, progress }) {
     if (!files.length) return;
     setSelected(files);
     setType("cdn");
+    // Default the destination to the folder the user is currently viewing.
+    setDestFolder(currentFolder);
+    setNewFolder("");
   }
 
   function clear() {
     setSelected([]);
+    setNewFolder("");
     if (fileRef.current) fileRef.current.value = "";
     if (folderRef.current) folderRef.current.value = "";
   }
 
   function start() {
-    const opts = { uploadType: type };
+    const opts = { uploadType: type, destFolder: resolveDestFolder(destFolder, newFolder) };
     if (type === "private") {
       if (expiry.mode === "preset") opts.expiresInSeconds = parseInt(expiry.preset, 10);
       else opts.expiresAt = expiry.datetime;
@@ -66,6 +103,9 @@ export default function UploadPanel({ onStartUpload, progress }) {
     onStartUpload(selected, opts);
     clear();
   }
+
+  // Ensure the currently selected destination is always an option.
+  const folderOptions = folders.includes(destFolder) ? folders : [...folders, destFolder].sort();
 
   const totalSize = selected.reduce((s, f) => s + f.size, 0);
   const busy = !!progress;
@@ -84,8 +124,12 @@ export default function UploadPanel({ onStartUpload, progress }) {
           onDrop={async (e) => {
             e.preventDefault();
             setDragging(false);
-            if (e.dataTransfer.items) {
-              const files = await filesFromDataTransfer(e.dataTransfer.items);
+            // Prefer the items API (supports folders); fall back to plain files.
+            const items = e.dataTransfer.items;
+            const supportsEntries =
+              items && items.length && typeof items[0].webkitGetAsEntry === "function";
+            if (supportsEntries) {
+              const files = await filesFromDataTransfer(items);
               if (files.length) select(files);
             } else if (e.dataTransfer.files.length) {
               select(Array.from(e.dataTransfer.files));
@@ -96,7 +140,7 @@ export default function UploadPanel({ onStartUpload, progress }) {
             <UploadCloud className="h-8 w-8" />
           </div>
           <p className="mb-3 text-slate-500">Drag &amp; drop files or folders here</p>
-          <div className="flex justify-center gap-3">
+          <div className="flex flex-wrap justify-center gap-3">
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -124,9 +168,18 @@ export default function UploadPanel({ onStartUpload, progress }) {
             onChange={(e) => select(Array.from(e.target.files))}
           />
           <input
-            ref={folderRef}
+            ref={(el) => {
+              folderRef.current = el;
+              // Set the directory attributes imperatively so the folder picker
+              // works reliably across browsers (React doesn't type these props).
+              if (el) {
+                el.setAttribute("webkitdirectory", "");
+                el.setAttribute("directory", "");
+                el.setAttribute("mozdirectory", "");
+              }
+            }}
             type="file"
-            webkitdirectory=""
+            multiple
             className="hidden"
             onChange={(e) => select(Array.from(e.target.files))}
           />
@@ -155,8 +208,40 @@ export default function UploadPanel({ onStartUpload, progress }) {
           </div>
 
           <div className="mb-4">
+            <label className="label">Destination Folder</label>
+            <div className="flex items-center gap-2">
+              <Folder className="h-4 w-4 flex-shrink-0 text-slate-400" />
+              <select
+                className="field"
+                value={destFolder}
+                onChange={(e) => setDestFolder(e.target.value)}
+              >
+                {folderOptions.map((f) => (
+                  <option key={f} value={f}>
+                    {folderLabel(f)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              type="text"
+              placeholder="Or type a new folder (e.g. reports/q1)"
+              className="field mt-2"
+              value={newFolder}
+              onChange={(e) => setNewFolder(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Files upload to{" "}
+              <span className="font-medium text-slate-500">{folderLabel(resolveDestFolder(destFolder, newFolder))}</span>
+              {selected.some((f) => f.webkitRelativePath || f.relativePathOverride)
+                ? " (subfolders within the selection are preserved)"
+                : ""}
+            </p>
+          </div>
+
+          <div className="mb-4">
             <label className="label">Upload Type</label>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
               <TypeCard
                 active={type === "cdn"}
                 onClick={() => setType("cdn")}

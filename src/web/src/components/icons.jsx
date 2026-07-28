@@ -102,3 +102,6 @@ export const ChevronUp = (props) => <Icon {...props}>{p("M5 15l7-7 7 7")}</Icon>
 export const Clock = (props) => (
   <Icon {...props}>{p("M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z")}</Icon>
 );
+export const LogOut = (props) => (
+  <Icon {...props}>{p("M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1")}</Icon>
+);
