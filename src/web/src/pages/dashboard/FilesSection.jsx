@@ -176,58 +176,20 @@ function RowMenu({ items }) {
   );
 }
 
-// The filter panel rendered as a floating popover. It is anchored to the
-// Filter button and rendered in a portal with fixed positioning so it overlays
-// the content instead of pushing it down, and is never clipped by the card's
-// overflow-hidden. It flips/pins to stay within the viewport.
-const FILTER_WIDTH = 320;
-
-function FilterPopover({ anchorRef, onClose, children }) {
-  const [coords, setCoords] = useState({ top: 0, left: 0 });
-  const panelRef = useRef(null);
-
-  useLayoutEffect(() => {
-    if (!anchorRef.current) return;
-    const r = anchorRef.current.getBoundingClientRect();
-    const left = Math.min(
-      Math.max(8, r.right - FILTER_WIDTH),
-      window.innerWidth - FILTER_WIDTH - 8
-    );
-    setCoords({ top: r.bottom + 8, left });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+// The filter panel rendered inline, directly below the toolbar. It expands in
+// the normal document flow so it pushes the file list down instead of floating
+// over it — the list is never covered by the filters.
+function FilterPanel({ onClose, children }) {
   useEffect(() => {
-    const onDoc = (e) => {
-      if (
-        anchorRef.current && !anchorRef.current.contains(e.target) &&
-        panelRef.current && !panelRef.current.contains(e.target)
-      ) {
-        onClose();
-      }
-    };
     const onKey = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onClose, true);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onClose, true);
-    };
-  }, [anchorRef, onClose]);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      style={{ position: "fixed", top: coords.top, left: coords.left, width: FILTER_WIDTH }}
-      className="z-50 max-h-[80vh] space-y-4 overflow-y-auto rounded-2xl border border-slate-100 bg-white p-4 shadow-xl ring-1 ring-slate-900/5"
-    >
+  return (
+    <div className="mt-3 space-y-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
       {children}
-    </div>,
-    document.body
+    </div>
   );
 }
 
@@ -404,7 +366,7 @@ export default function FilesSection({
         </div>
 
         {showFilters && (
-          <FilterPopover anchorRef={filterBtnRef} onClose={() => setShowFilters(false)}>
+          <FilterPanel onClose={() => setShowFilters(false)}>
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-slate-700">Filters</span>
               {activeCount > 0 && (
@@ -439,7 +401,7 @@ export default function FilesSection({
             <button onClick={() => setFilters(makeEmptyFilters())} className="w-full py-2 text-sm text-slate-500 transition hover:text-slate-800">
               Clear all filters
             </button>
-          </FilterPopover>
+          </FilterPanel>
         )}
       </div>
 
