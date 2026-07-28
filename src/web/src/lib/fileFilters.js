@@ -94,8 +94,8 @@ export function filterFiles(allFiles, currentFolder, f) {
 
 // Expiry / download badge text + tone for a file row.
 export function expiryBadge(file) {
-  if (file.uploadType === "cdn") return { text: "♾️ Never expires", tone: "text-emerald-600" };
-  if (file.isExpired) return { text: "⏰ Expired", tone: "text-rose-600" };
+  if (file.uploadType === "cdn") return { text: "Never expires", tone: "text-emerald-600" };
+  if (file.isExpired) return { text: "Expired", tone: "text-rose-600" };
   if (file.expiresAt) {
     const diffMs = new Date(file.expiresAt) - new Date();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -104,7 +104,7 @@ export function expiryBadge(file) {
     if (diffDays > 0) left = `${diffDays}d ${diffHours % 24}h`;
     else if (diffHours > 0) left = `${diffHours}h`;
     else left = `${Math.floor(diffMs / (1000 * 60))}m`;
-    return { text: `⏰ Expires in ${left}`, tone: diffHours < 24 ? "text-amber-600" : "text-slate-400" };
+    return { text: `Expires in ${left}`, tone: diffHours < 24 ? "text-amber-600" : "text-slate-400" };
   }
   return null;
 }
@@ -113,7 +113,7 @@ export function downloadBadge(file) {
   if (file.uploadType === "cdn" || !file.maxDownloads) return null;
   const remaining = file.downloadsRemaining ?? file.maxDownloads - (file.downloadCount || 0);
   return {
-    text: `📥 ${remaining}/${file.maxDownloads} downloads left`,
+    text: `${remaining}/${file.maxDownloads} downloads left`,
     tone: remaining <= 1 ? "text-amber-600" : "text-slate-400",
   };
 }

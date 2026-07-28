@@ -452,6 +452,56 @@ func (c *Client) DeleteFile(fileID string) error {
 	return nil
 }
 
+type ConvertRequest struct {
+	UploadType       string `json:"uploadType"`
+	ExpiresInSeconds *int   `json:"expiresInSeconds,omitempty"`
+	MaxDownloads     *int   `json:"maxDownloads,omitempty"`
+}
+
+type ConvertResponse struct {
+	UploadType   string  `json:"uploadType"`
+	CdnURL       *string `json:"cdnUrl"`
+	ExpiresAt    *string `json:"expiresAt"`
+	MaxDownloads *int    `json:"maxDownloads"`
+}
+
+// ConvertFile switches a file between "private" and "cdn" storage.
+func (c *Client) ConvertFile(fileID string, req *ConvertRequest) (*ConvertResponse, error) {
+	resp, err := c.doRequest("POST", "/files/"+fileID+"/convert", req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to convert file: %s - %s", resp.Status, string(body))
+	}
+
+	var result ConvertResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+// DeleteUploadURL cancels an upload-URL project by id.
+func (c *Client) DeleteUploadURL(projectID string) error {
+	resp, err := c.doRequest("DELETE", "/upload-urls/"+projectID, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("failed to delete upload URL: %s - %s", resp.Status, string(body))
+	}
+
+	return nil
+}
+
 // Upload URL types
 
 type CreateUploadURLRequest struct {

@@ -25,9 +25,26 @@ const DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 // Max retention: 30 days
 const MAX_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 
+// Normalize a folder path to always start with "/" and never end with "/" (except root)
+function normalizeFolderPath(p) {
+  if (!p || p === "/") return "/";
+  let normalized = p.startsWith("/") ? p : "/" + p;
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+// Validate folder path segments (no empty segments, no backslashes)
+function isValidFolderPath(p) {
+  if (p === "/") return true;
+  const segments = p.split("/").filter(Boolean);
+  return segments.length > 0 && segments.every((s) => s.trim().length > 0 && !s.includes("\\"));
+}
+
 router.post("/", async (req, res) => {
   try {
-    const { fileName, fileType, fileSize, uploadType, expiresAt, expiresInSeconds, maxDownloads } = req.body;
+    const { fileName, fileType, fileSize, uploadType, expiresAt, expiresInSeconds, maxDownloads, folderPath } = req.body;
 
     if (!fileName || !fileType) {
       return res.status(400).json({ error: "Missing fileName or fileType" });
@@ -38,6 +55,12 @@ router.post("/", async (req, res) => {
     }
 
     const isCdn = uploadType === "cdn";
+
+    // Resolve the destination folder (used to preserve structure on folder uploads)
+    const targetFolderPath = normalizeFolderPath(folderPath || "/");
+    if (!isValidFolderPath(targetFolderPath)) {
+      return res.status(400).json({ error: "Invalid folder path" });
+    }
 
     // Check role-based permissions
     if (isCdn && !req.user.canUploadCdn) {
@@ -139,6 +162,11 @@ router.post("/", async (req, res) => {
       status: "pending",
       downloadCount: 0
     };
+
+    // Preserve folder placement (root is represented by the absence of folderPath)
+    if (targetFolderPath !== "/") {
+      item.folderPath = targetFolderPath;
+    }
 
     // Add multipart info if applicable
     if (useMultipart) {

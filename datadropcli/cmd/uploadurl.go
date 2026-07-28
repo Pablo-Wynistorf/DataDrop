@@ -131,12 +131,12 @@ func runListUploadURLs(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Found %d upload URL project(s):\n\n", len(projects))
 
 	for _, p := range projects {
-		statusIcon := "✓"
+		status := "active"
 		if p.IsExpired {
-			statusIcon = "⏰"
+			status = "expired"
 		}
 
-		fmt.Printf("%s %s\n", statusIcon, p.Name)
+		fmt.Printf("[%s] %s\n", status, p.Name)
 		fmt.Printf("   ID: %s\n", p.ID)
 		fmt.Printf("   Max file size: %s\n", formatSize(p.MaxFileSizeBytes))
 		fmt.Printf("   Files: %d | Total size: %s\n", p.FileCount, formatSize(p.TotalSize))

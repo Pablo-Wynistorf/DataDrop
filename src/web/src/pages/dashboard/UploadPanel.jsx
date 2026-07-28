@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import ExpirySelector from "../../components/ExpirySelector.jsx";
-import { UploadCloud, Close } from "../../components/icons.jsx";
+import { UploadCloud, Close, Doc, Folder, Globe, Lock } from "../../components/icons.jsx";
 import { formatFileSize, formatSpeed, formatETA } from "../../lib/format.js";
 
 async function filesFromDataTransfer(items) {
@@ -64,7 +64,7 @@ export default function UploadPanel({ onStartUpload, progress }) {
     <div className="card mb-6 p-6">
       {selected.length === 0 && !busy && (
         <div
-          className={`cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 p-8 text-center transition hover:border-brand-400 hover:bg-brand-50/40 ${dragging ? "drop-zone-active" : ""}`}
+          className={`cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 p-8 text-center transition-colors hover:border-brand-400 ${dragging ? "drop-zone-active" : ""}`}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -92,18 +92,18 @@ export default function UploadPanel({ onStartUpload, progress }) {
                 e.stopPropagation();
                 fileRef.current?.click();
               }}
-              className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-medium text-brand-600 transition hover:bg-brand-100"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
             >
-              📄 Select Files
+              <Doc className="h-4 w-4" /> Select Files
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 folderRef.current?.click();
               }}
-              className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-600 transition hover:bg-violet-100"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
             >
-              📁 Select Folder
+              <Folder className="h-4 w-4" /> Select Folder
             </button>
           </div>
           <input
@@ -150,16 +150,16 @@ export default function UploadPanel({ onStartUpload, progress }) {
               <TypeCard
                 active={type === "cdn"}
                 onClick={() => setType("cdn")}
-                emoji="🌐"
-                emojiBg="bg-emerald-100"
+                icon={<Globe className="h-5 w-5 text-emerald-600" />}
+                iconBg="bg-emerald-100"
                 title="CDN"
                 desc="Public permanent URL via CloudFront. Anyone with the link can download."
               />
               <TypeCard
                 active={type === "private"}
                 onClick={() => setType("private")}
-                emoji="🔒"
-                emojiBg="bg-brand-100"
+                icon={<Lock className="h-5 w-5 text-brand-600" />}
+                iconBg="bg-brand-100"
                 title="Private"
                 desc="Time-limited share links. Control access and expiration."
               />
@@ -213,21 +213,17 @@ export default function UploadPanel({ onStartUpload, progress }) {
   );
 }
 
-function TypeCard({ active, onClick, emoji, emojiBg, title, desc }) {
+function TypeCard({ active, onClick, icon, iconBg, title, desc }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl border-2 p-4 text-left transition ${
-        active
-          ? "border-brand-500 bg-brand-50 shadow-[0_8px_25px_-10px_rgba(37,99,235,0.4)]"
-          : "border-slate-200 bg-white hover:border-slate-300"
+      className={`rounded-xl border-2 p-4 text-left transition-colors ${
+        active ? "border-brand-500 bg-brand-50" : "border-slate-200 bg-white hover:border-slate-300"
       }`}
     >
       <div className="mb-2 flex items-center gap-3">
-        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${emojiBg}`}>
-          <span className="text-xl">{emoji}</span>
-        </div>
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconBg}`}>{icon}</div>
         <span className="font-semibold text-slate-900">{title}</span>
       </div>
       <p className="text-xs text-slate-500">{desc}</p>

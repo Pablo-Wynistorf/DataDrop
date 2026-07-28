@@ -5,7 +5,7 @@ import { useToast } from "../components/Toast.jsx";
 import { ConfirmDialog } from "../components/Modal.jsx";
 import { Terminal, Link } from "../components/icons.jsx";
 import { API_URL, apiFetch, jsonBody } from "../lib/api.js";
-import { UploadTracker, putToS3, uploadAuthedFile } from "../lib/upload.js";
+import { UploadTracker, putToS3, uploadAuthedFile, computeFolderPath } from "../lib/upload.js";
 import { makeEmptyFilters } from "../lib/fileFilters.js";
 import { buildFolderTree } from "../lib/folders.js";
 
@@ -16,6 +16,7 @@ import ShareModal from "./dashboard/ShareModal.jsx";
 import UploadUrlModal from "./dashboard/UploadUrlModal.jsx";
 import { CliModal, CliAuthModal } from "./dashboard/CliModals.jsx";
 import { MoveFileModal, CreateFolderModal, RenameFolderModal } from "./dashboard/FolderModals.jsx";
+import ConvertModal from "./dashboard/ConvertModal.jsx";
 
 export default function Dashboard() {
   const toast = useToast();
@@ -30,6 +31,7 @@ export default function Dashboard() {
   // Modal state
   const [editFile, setEditFile] = useState(null);
   const [shareFile, setShareFile] = useState(null);
+  const [convertFile, setConvertFile] = useState(null);
   const [moveFile, setMoveFile] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -115,7 +117,7 @@ export default function Dashboard() {
   }
 
   async function runUploads(selectedFiles, opts) {
-    const uploadOpts = { ...opts, folderPath: currentFolder };
+    const uploadOpts = { ...opts, baseFolder: currentFolder };
     const totalSize = selectedFiles.reduce((s, f) => s + f.size, 0);
 
     if (selectedFiles.length === 1) {
@@ -275,6 +277,7 @@ export default function Dashboard() {
           onMoveFile={setMoveFile}
           onEdit={setEditFile}
           onShare={setShareFile}
+          onConvert={setConvertFile}
           onDelete={deleteFile}
         />
       </div>
@@ -291,6 +294,17 @@ export default function Dashboard() {
         />
       )}
       {shareFile && <ShareModal file={shareFile} toast={toast} onClose={() => setShareFile(null)} />}
+      {convertFile && (
+        <ConvertModal
+          file={convertFile}
+          toast={toast}
+          onClose={() => setConvertFile(null)}
+          onConverted={() => {
+            setConvertFile(null);
+            loadFiles();
+          }}
+        />
+      )}
       {moveFile && (
         <MoveFileModal
           file={moveFile}
@@ -330,7 +344,8 @@ async function uploadOneAggregated(file, opts, uploadedSoFar, totalSize, tracker
     fileSize: file.size,
     uploadType: opts.uploadType,
   };
-  if (opts.folderPath && opts.folderPath !== "/") body.folderPath = opts.folderPath;
+  const folderPath = computeFolderPath(opts.baseFolder, file);
+  if (folderPath && folderPath !== "/") body.folderPath = folderPath;
   if (opts.uploadType === "private") {
     if (opts.expiresAt) body.expiresAt = opts.expiresAt;
     else if (opts.expiresInSeconds) body.expiresInSeconds = opts.expiresInSeconds;

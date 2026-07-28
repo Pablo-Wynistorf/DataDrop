@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { S3Client, CopyObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import jwt from "jsonwebtoken";
 
 const router = Router();
 const sqsClient = new SQSClient({});
+const s3Client = new S3Client({});
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
@@ -13,6 +15,20 @@ const FILES_TABLE = process.env.FILES_TABLE;
 const FILE_DELETION_QUEUE_URL = process.env.FILE_DELETION_QUEUE_URL;
 const JWT_SECRET = process.env.JWT_SECRET || "default-secret-change-me";
 const FRONTEND_URL = process.env.FRONTEND_URL;
+const BUCKET_NAME = process.env.BUCKET_NAME;
+const CDN_BUCKET_NAME = process.env.CDN_BUCKET_NAME;
+const CDN_URL = process.env.CDN_URL;
+
+// Objects larger than this can't be converted with a single CopyObject call.
+const MAX_CONVERT_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const MAX_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+// Encode an S3 key for use as a CopySource, preserving path separators.
+function encodeCopySource(bucket, key) {
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+  return `${bucket}/${encodedKey}`;
+}
 
 router.get("/", async (req, res) => {
   try {
@@ -309,6 +325,143 @@ router.delete("/:fileId", async (req, res) => {
     res.json({ success: true, message: "File deletion queued" });
   } catch (error) {
     console.error("Delete file error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Convert a file between "private" and "cdn" storage. The underlying object is
+// copied to the destination bucket/prefix and the source copy is removed, then
+// the DynamoDB record is updated to reflect the new type.
+router.post("/:fileId/convert", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const { uploadType, expiresInSeconds, expiresAt, maxDownloads } = req.body;
+
+    const targetType = uploadType === "cdn" ? "cdn" : "private";
+
+    const result = await docClient.send(new GetCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId }
+    }));
+
+    if (!result.Item || result.Item.userId !== req.user.userId) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const file = result.Item;
+
+    if (file.uploadType === targetType) {
+      return res.status(400).json({ error: `File is already ${targetType}` });
+    }
+
+    if (file.status !== "uploaded" && file.status !== "ready") {
+      return res.status(400).json({ error: "File is not ready to be converted" });
+    }
+
+    // Role-based permission checks (mirror the upload route)
+    if (targetType === "cdn" && !req.user.canUploadCdn) {
+      return res.status(403).json({ error: "You don't have permission to create CDN files. Required role: cdnUser" });
+    }
+    if (targetType === "private" && !req.user.canUploadFile) {
+      return res.status(403).json({ error: "You don't have permission to create private files. Required role: fileUser" });
+    }
+
+    if (file.fileSize && file.fileSize > MAX_CONVERT_BYTES) {
+      return res.status(413).json({ error: "File is too large to convert (max 5GB)" });
+    }
+
+    const isToCdn = targetType === "cdn";
+    const destBucket = isToCdn ? CDN_BUCKET_NAME : BUCKET_NAME;
+    const destKey = isToCdn ? `cdn/${fileId}/${file.fileName}` : `uploads/${fileId}/${file.fileName}`;
+
+    // Copy to the destination bucket, then delete the original object.
+    await s3Client.send(new CopyObjectCommand({
+      Bucket: destBucket,
+      Key: destKey,
+      CopySource: encodeCopySource(file.bucket, file.s3Key),
+      ContentType: file.fileType,
+      MetadataDirective: "COPY"
+    }));
+
+    await s3Client.send(new DeleteObjectCommand({
+      Bucket: file.bucket,
+      Key: file.s3Key
+    }));
+
+    const setParts = ["#uploadType = :uploadType", "#bucket = :bucket", "#s3Key = :s3Key"];
+    const removeParts = [];
+    const names = { "#uploadType": "uploadType", "#bucket": "bucket", "#s3Key": "s3Key" };
+    const values = { ":uploadType": targetType, ":bucket": destBucket, ":s3Key": destKey, ":condUserId": req.user.userId };
+
+    if (isToCdn) {
+      // CDN files are public and permanent: drop expiry and download limits.
+      const cdnUrl = `${CDN_URL}/${fileId}/${encodeURIComponent(file.fileName)}`;
+      setParts.push("#cdnUrl = :cdnUrl");
+      names["#cdnUrl"] = "cdnUrl";
+      values[":cdnUrl"] = cdnUrl;
+      for (const attr of ["ttl", "expiresAt", "maxDownloads", "downloadCount"]) {
+        removeParts.push(`#${attr}`);
+        names[`#${attr}`] = attr;
+      }
+    } else {
+      // Private files get a TTL and optional download limit.
+      let retentionSeconds = DEFAULT_RETENTION_SECONDS;
+      if (expiresAt) {
+        retentionSeconds = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000);
+      } else if (expiresInSeconds) {
+        retentionSeconds = parseInt(expiresInSeconds, 10);
+      }
+      retentionSeconds = Math.max(60, Math.min(retentionSeconds, MAX_RETENTION_SECONDS));
+      const ttl = Math.floor(Date.now() / 1000) + retentionSeconds;
+
+      setParts.push("#ttl = :ttl", "#expiresAt = :expiresAt", "#downloadCount = :zero");
+      names["#ttl"] = "ttl";
+      names["#expiresAt"] = "expiresAt";
+      names["#downloadCount"] = "downloadCount";
+      values[":ttl"] = ttl;
+      values[":expiresAt"] = new Date(ttl * 1000).toISOString();
+      values[":zero"] = 0;
+
+      removeParts.push("#cdnUrl");
+      names["#cdnUrl"] = "cdnUrl";
+
+      const limit = maxDownloads ? parseInt(maxDownloads, 10) : null;
+      if (limit && limit > 0) {
+        setParts.push("#maxDownloads = :maxDownloads");
+        names["#maxDownloads"] = "maxDownloads";
+        values[":maxDownloads"] = limit;
+      } else {
+        removeParts.push("#maxDownloads");
+        names["#maxDownloads"] = "maxDownloads";
+      }
+    }
+
+    let updateExpression = "SET " + setParts.join(", ");
+    if (removeParts.length > 0) updateExpression += " REMOVE " + removeParts.join(", ");
+
+    const updated = await docClient.send(new UpdateCommand({
+      TableName: FILES_TABLE,
+      Key: { id: fileId },
+      UpdateExpression: updateExpression,
+      ConditionExpression: "userId = :condUserId",
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ReturnValues: "ALL_NEW"
+    }));
+
+    const item = updated.Attributes;
+    res.json({
+      success: true,
+      uploadType: item.uploadType,
+      cdnUrl: item.cdnUrl || null,
+      expiresAt: item.uploadType === "cdn" ? null : item.expiresAt,
+      maxDownloads: item.maxDownloads || null
+    });
+  } catch (error) {
+    if (error.name === "ConditionalCheckFailedException") {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    console.error("Convert file error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -65,3 +65,40 @@ export const Warning = (props) => (
 export const Cog = (props) => (
   <Icon {...props}>{p("M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z")}</Icon>
 );
+export const Globe = (props) => (
+  <Icon {...props}>{p("M21 12a9 9 0 11-18 0 9 9 0 0118 0z")}{p("M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 010 18M12 3a15 15 0 000 18")}</Icon>
+);
+export const Lock = (props) => (
+  <Icon {...props}>{p("M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z")}</Icon>
+);
+export const Info = (props) => (
+  <Icon {...props}>{p("M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z")}</Icon>
+);
+export const Swap = (props) => (
+  <Icon {...props}>{p("M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4")}</Icon>
+);
+
+// File-type + UI icons used by the file browser.
+export const Image = (props) => (
+  <Icon {...props}>{p("M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm2 12l4-4 3 3 3-3 2 2M9 9a1 1 0 100-2 1 1 0 000 2z")}</Icon>
+);
+export const Film = (props) => (
+  <Icon {...props}>{p("M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm0 4h16M4 15h16M8 4v16m8-16v16")}</Icon>
+);
+export const Music = (props) => (
+  <Icon {...props}>{p("M9 19V6l10-2v11M9 19a2 2 0 11-4 0 2 2 0 014 0zm10-2a2 2 0 11-4 0 2 2 0 014 0z")}</Icon>
+);
+export const Archive = (props) => (
+  <Icon {...props}>{p("M4 7v11a2 2 0 002 2h12a2 2 0 002-2V7M4 7l1-3h14l1 3M4 7h16M10 12h4")}</Icon>
+);
+export const Code = (props) => (
+  <Icon {...props}>{p("M8 9l-3 3 3 3m8-6l3 3-3 3m-2-9l-4 12")}</Icon>
+);
+export const More = (props) => (
+  <Icon {...props}>{p("M12 5h.01M12 12h.01M12 19h.01")}</Icon>
+);
+export const ChevronDown = (props) => <Icon {...props}>{p("M19 9l-7 7-7-7")}</Icon>;
+export const ChevronUp = (props) => <Icon {...props}>{p("M5 15l7-7 7 7")}</Icon>;
+export const Clock = (props) => (
+  <Icon {...props}>{p("M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z")}</Icon>
+);

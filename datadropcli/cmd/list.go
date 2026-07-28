@@ -68,20 +68,12 @@ func runList(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Found %d file(s):\n\n", len(files))
 
 	for _, f := range files {
-		typeIcon := "🔒"
-		if f.UploadType == "cdn" {
-			typeIcon = "🌐"
-		}
-
-		statusIcon := "✓"
-		if f.Status != "uploaded" {
-			statusIcon = "⏳"
-		}
+		status := f.Status
 		if f.IsExpired {
-			statusIcon = "⏰"
+			status = "expired"
 		}
 
-		fmt.Printf("%s %s %s\n", typeIcon, statusIcon, f.FileName)
+		fmt.Printf("%s  [%s, %s]\n", f.FileName, f.UploadType, status)
 		fmt.Printf("   ID: %s\n", f.ID)
 		fmt.Printf("   Size: %s | Type: %s | Status: %s\n", formatSize(f.FileSize), f.UploadType, f.Status)
 

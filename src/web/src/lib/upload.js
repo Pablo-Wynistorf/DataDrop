@@ -57,10 +57,24 @@ export function putToS3(url, blob, contentType, onProgress) {
   });
 }
 
+// Derive the destination folder for a file. When a folder is picked, the
+// browser sets file.webkitRelativePath (e.g. "photos/2024/a.jpg"); its
+// directory part is appended to the current base folder so the structure is
+// preserved on the server.
+export function computeFolderPath(baseFolder, file) {
+  const base = baseFolder && baseFolder !== "/" ? baseFolder : "";
+  const rel = file.webkitRelativePath || "";
+  let sub = "";
+  if (rel.includes("/")) sub = rel.slice(0, rel.lastIndexOf("/"));
+  const combined = base + (sub ? "/" + sub : "");
+  return combined === "" ? "/" : combined;
+}
+
 // Upload a single authenticated file, handling both single-PUT and multipart.
 // onProgress receives { pct, speed, eta, detail } while uploading.
 export async function uploadAuthedFile(file, opts, onProgress) {
-  const { uploadType, expiresInSeconds, expiresAt, maxDownloads, folderPath } = opts;
+  const { uploadType, expiresInSeconds, expiresAt, maxDownloads } = opts;
+  const folderPath = computeFolderPath(opts.baseFolder, file);
 
   const body = {
     fileName: file.name,

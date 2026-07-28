@@ -2,7 +2,7 @@ import { Router } from "express";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 
@@ -134,6 +134,34 @@ router.get("/:projectId", async (req, res) => {
     });
   } catch (error) {
     console.error("Get upload URL project error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete / cancel an upload URL project. Removing the record immediately
+// disables the link: the public upload endpoints look the project up by id
+// and return 404 once it is gone. Any files already uploaded are kept.
+router.delete("/:projectId", async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const result = await docClient.send(new GetCommand({
+      TableName: UPLOAD_URLS_TABLE,
+      Key: { id: projectId }
+    }));
+
+    if (!result.Item || result.Item.userId !== req.user.userId) {
+      return res.status(404).json({ error: "Upload project not found" });
+    }
+
+    await docClient.send(new DeleteCommand({
+      TableName: UPLOAD_URLS_TABLE,
+      Key: { id: projectId }
+    }));
+
+    res.json({ success: true, projectId });
+  } catch (error) {
+    console.error("Delete upload URL error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

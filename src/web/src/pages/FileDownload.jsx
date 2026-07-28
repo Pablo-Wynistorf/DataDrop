@@ -88,7 +88,7 @@ export default function FileDownload() {
         {status === "ready" && info && (
           <div>
             <div className="mb-6 text-center">
-              <div className="mx-auto mb-4 flex h-20 w-20 animate-float items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+              <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
                 <Doc className="h-10 w-10" />
               </div>
               <h2 className="break-all text-xl font-semibold text-slate-900">{info.fileName}</h2>

@@ -41,10 +41,12 @@ func init() {
 	rootCmd.AddCommand(downloadCmd)
 	rootCmd.AddCommand(infoCmd)
 	rootCmd.AddCommand(renameCmd)
+	rootCmd.AddCommand(convertCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(createUploadURLCmd)
 	rootCmd.AddCommand(listUploadURLsCmd)
+	rootCmd.AddCommand(deleteUploadURLCmd)
 }

@@ -72,7 +72,7 @@ resource "aws_iam_role_policy" "lambda" {
       },
       {
         Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:PutObject"]
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = [
           "${aws_s3_bucket.files.arn}/*",
           "${aws_s3_bucket.cdn_files.arn}/*"

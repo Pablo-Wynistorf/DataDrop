@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Modal from "../../components/Modal.jsx";
 import ExpirySelector from "../../components/ExpirySelector.jsx";
-import { Share } from "../../components/icons.jsx";
+import { Share, Globe, Lock } from "../../components/icons.jsx";
 import { apiFetch, jsonBody } from "../../lib/api.js";
 import { EXPIRY_PRESETS } from "../../lib/fileFilters.js";
 
@@ -39,7 +39,7 @@ export default function ShareModal({ file, onClose, toast }) {
       {isCdn ? (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="mb-2 flex items-center gap-2 text-sm font-medium text-emerald-700">
-            <span className="text-lg">🌐</span> Public CDN Link
+            <Globe className="h-4 w-4" /> Public CDN Link
           </p>
           <p className="mb-3 text-xs text-emerald-600/80">This file is publicly accessible. The link never expires.</p>
           <div className="flex gap-2">
@@ -56,7 +56,7 @@ export default function ShareModal({ file, onClose, toast }) {
         <div>
           <div className="mb-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
             <p className="mb-2 flex items-center gap-2 text-sm font-medium text-brand-700">
-              <span className="text-lg">🔒</span> Private File
+              <Lock className="h-4 w-4" /> Private File
             </p>
             <p className="text-xs text-brand-600/80">Generate a time-limited share link below.</p>
           </div>
