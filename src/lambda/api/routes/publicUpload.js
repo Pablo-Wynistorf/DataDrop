@@ -75,7 +75,7 @@ router.get("/:token/info", validateUploadToken, async (req, res) => {
 // Request presigned upload URL (public, token-validated)
 router.post("/:token/upload", validateUploadToken, async (req, res) => {
   try {
-    const { fileName, fileType, fileSize } = req.body;
+    const { fileName, fileType, fileSize, relativePath } = req.body;
 
     if (!fileName || !fileType) {
       return res.status(400).json({ error: "Missing fileName or fileType" });
@@ -114,6 +114,20 @@ router.post("/:token/upload", validateUploadToken, async (req, res) => {
     const fileId = uuidv4();
     const s3Key = `uploads/${fileId}/${fileName}`;
 
+    // Preserve any subfolder structure from an uploaded folder. relativePath
+    // looks like "photos/2024/a.jpg"; keep only its directory part and nest it
+    // under the project's folder. Reject traversal/absolute segments.
+    let folderPath = `/${project.name}`;
+    if (relativePath && typeof relativePath === "string") {
+      const normalized = relativePath.replace(/\\/g, "/");
+      const dir = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/")) : "";
+      const segments = dir
+        .split("/")
+        .map((s) => s.trim())
+        .filter((s) => s && s !== "." && s !== "..");
+      if (segments.length) folderPath = `/${project.name}/${segments.join("/")}`;
+    }
+
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: s3Key,
@@ -144,7 +158,7 @@ router.post("/:token/upload", validateUploadToken, async (req, res) => {
       createdAt: new Date().toISOString(),
       status: "pending",
       downloadCount: 0,
-      folderPath: `/${project.name}`,
+      folderPath,
       ttl,
       expiresAt,
       uploadProjectId: project.id,

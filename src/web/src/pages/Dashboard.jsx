@@ -171,8 +171,11 @@ export default function Dashboard() {
     }
     // Private files need a short-lived signed link (valid ~5 minutes). Open a
     // blank tab synchronously first so the popup blocker doesn't reject it
-    // after the async request resolves.
-    const tab = window.open("", "_blank", "noopener,noreferrer");
+    // after the async request resolves. Note: we can't pass "noopener" here or
+    // window.open returns null and we lose the handle needed to navigate the
+    // tab once the signed URL arrives — instead we sever opener access below.
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
     const { res, data } = await apiFetch(`/files/${file.id}/view`);
     if (res.ok && data?.viewUrl) {
       if (tab) tab.location = data.viewUrl;

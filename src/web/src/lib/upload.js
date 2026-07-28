@@ -57,6 +57,64 @@ export function putToS3(url, blob, contentType, onProgress) {
   });
 }
 
+// readEntries only returns a batch (max ~100) per call, so keep reading until
+// it reports an empty batch to capture every child of a directory.
+function readAllEntries(reader) {
+  return new Promise((resolve, reject) => {
+    const all = [];
+    const readBatch = () =>
+      reader.readEntries((batch) => {
+        if (!batch.length) resolve(all);
+        else {
+          all.push(...batch);
+          readBatch();
+        }
+      }, reject);
+    readBatch();
+  });
+}
+
+// Turn a dropped DataTransferItemList into a flat list of File objects,
+// recursing into any dropped folders. Files pulled out of a folder get a
+// `relativePathOverride` (e.g. "photos/2024/a.jpg") so their folder structure
+// can be preserved; computeFolderPath falls back to it. Dropping folders this
+// way (rather than reading dataTransfer.files) avoids sending directory entries
+// to S3, which browsers reject with net::ERR_ACCESS_DENIED.
+export async function filesFromDataTransfer(items) {
+  // webkitGetAsEntry() must be called synchronously for every item before we
+  // await anything: the DataTransferItemList is emptied once the drop handler
+  // yields, so grabbing the entries first is what makes multi-item drops work.
+  const rootEntries = [];
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry?.();
+    if (entry) rootEntries.push(entry);
+  }
+
+  const files = [];
+  // `dir` is the folder path relative to the drop root (empty at the top level).
+  async function traverse(entry, dir) {
+    if (entry.isFile) {
+      const f = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      if (dir) f.relativePathOverride = `${dir}/${entry.name}`;
+      files.push(f);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const childDir = dir ? `${dir}/${entry.name}` : entry.name;
+      const entries = await readAllEntries(reader);
+      for (const e of entries) await traverse(e, childDir);
+    }
+  }
+
+  for (const entry of rootEntries) await traverse(entry, "");
+  return files;
+}
+
+// The path of a file relative to the drop/selection root, including subfolders
+// (e.g. "photos/2024/a.jpg"). Empty when the file has no folder context.
+export function relativePathOf(file) {
+  return file.webkitRelativePath || file.relativePathOverride || "";
+}
+
 // Derive the destination folder for a file. When a folder is picked, the
 // browser sets file.webkitRelativePath (e.g. "photos/2024/a.jpg"); its
 // directory part is appended to the current base folder so the structure is

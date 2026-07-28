@@ -2,54 +2,7 @@ import { useRef, useState } from "react";
 import ExpirySelector from "../../components/ExpirySelector.jsx";
 import { UploadCloud, Close, Doc, Folder, Globe, Lock } from "../../components/icons.jsx";
 import { formatFileSize, formatSpeed, formatETA } from "../../lib/format.js";
-
-// readEntries only returns a batch (max ~100) per call, so keep reading until
-// it reports an empty batch to capture every child of a directory.
-function readAllEntries(reader) {
-  return new Promise((resolve, reject) => {
-    const all = [];
-    const readBatch = () =>
-      reader.readEntries((batch) => {
-        if (!batch.length) resolve(all);
-        else {
-          all.push(...batch);
-          readBatch();
-        }
-      }, reject);
-    readBatch();
-  });
-}
-
-async function filesFromDataTransfer(items) {
-  // webkitGetAsEntry() must be called synchronously for every item before we
-  // await anything: the DataTransferItemList is emptied once the drop handler
-  // yields, so grabbing the entries first is what makes multi-item drops work.
-  const rootEntries = [];
-  for (let i = 0; i < items.length; i++) {
-    const entry = items[i].webkitGetAsEntry?.();
-    if (entry) rootEntries.push(entry);
-  }
-
-  const files = [];
-  // `dir` is the folder path relative to the drop root (empty at the top level).
-  async function traverse(entry, dir) {
-    if (entry.isFile) {
-      const f = await new Promise((resolve, reject) => entry.file(resolve, reject));
-      // The drop API doesn't set webkitRelativePath, so record the path
-      // ourselves; computeFolderPath falls back to this.
-      if (dir) f.relativePathOverride = `${dir}/${entry.name}`;
-      files.push(f);
-    } else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      const childDir = dir ? `${dir}/${entry.name}` : entry.name;
-      const entries = await readAllEntries(reader);
-      for (const e of entries) await traverse(e, childDir);
-    }
-  }
-
-  for (const entry of rootEntries) await traverse(entry, "");
-  return files;
-}
+import { filesFromDataTransfer } from "../../lib/upload.js";
 
 // Combine a base folder with an optional new subfolder/path the user typed.
 function resolveDestFolder(base, newFolder) {
