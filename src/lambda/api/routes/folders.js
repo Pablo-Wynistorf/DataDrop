@@ -1,12 +1,15 @@
 import { Router } from "express";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const router = Router();
+const sqsClient = new SQSClient({});
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 const FILES_TABLE = process.env.FILES_TABLE;
+const FILE_DELETION_QUEUE_URL = process.env.FILE_DELETION_QUEUE_URL;
 
 // Helper: normalize a folder path to always start with "/" and never end with "/" (except root)
 function normalizePath(p) {
@@ -23,6 +26,25 @@ function isValidPath(p) {
   if (p === "/") return true;
   const segments = p.split("/").filter(Boolean);
   return segments.length > 0 && segments.every(s => s.trim().length > 0 && !s.includes("\\"));
+}
+
+// Helper: run an async task over items with bounded concurrency. Keeps folder
+// operations fast on large folders without firing thousands of simultaneous
+// DynamoDB/SQS requests (which risks throttling). Returns the settled results
+// in the same order as `items`.
+const FOLDER_OP_CONCURRENCY = 25;
+async function mapWithConcurrency(items, task, limit = FOLDER_OP_CONCURRENCY) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await task(items[index], index);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
 
 // List all distinct folders for the current user (derived from file folderPath values)
@@ -128,8 +150,7 @@ router.post("/move-files", async (req, res) => {
       return res.status(400).json({ error: "Invalid folder path" });
     }
 
-    const results = [];
-    for (const fileId of fileIds) {
+    const results = await mapWithConcurrency(fileIds, async (fileId) => {
       try {
         const file = await docClient.send(new GetCommand({
           TableName: FILES_TABLE,
@@ -137,8 +158,7 @@ router.post("/move-files", async (req, res) => {
         }));
 
         if (!file.Item || file.Item.userId !== req.user.userId) {
-          results.push({ fileId, status: "not_found" });
-          continue;
+          return { fileId, status: "not_found" };
         }
 
         if (targetPath === "/") {
@@ -161,15 +181,14 @@ router.post("/move-files", async (req, res) => {
           }));
         }
 
-        results.push({ fileId, status: "moved" });
+        return { fileId, status: "moved" };
       } catch (err) {
         if (err.name === "ConditionalCheckFailedException") {
-          results.push({ fileId, status: "access_denied" });
-        } else {
-          results.push({ fileId, status: "error" });
+          return { fileId, status: "access_denied" };
         }
+        return { fileId, status: "error" };
       }
-    }
+    });
 
     res.json({ success: true, results });
   } catch (error) {
@@ -210,25 +229,26 @@ router.post("/rename", async (req, res) => {
       ProjectionExpression: "id, folderPath"
     }));
 
-    let updated = 0;
-    for (const item of result.Items || []) {
+    // Match exact path or children (e.g. /a matches /a and /a/b but not /ab)
+    const toUpdate = (result.Items || []).filter((item) => {
       const fp = item.folderPath || "/";
-      // Match exact path or children (e.g. /a matches /a and /a/b but not /ab)
-      if (fp === normalizedOld || fp.startsWith(normalizedOld + "/")) {
-        const updatedPath = newPath + fp.slice(normalizedOld.length);
-        await docClient.send(new UpdateCommand({
-          TableName: FILES_TABLE,
-          Key: { id: item.id },
-          UpdateExpression: "SET #folderPath = :folderPath",
-          ConditionExpression: "userId = :userId",
-          ExpressionAttributeNames: { "#folderPath": "folderPath" },
-          ExpressionAttributeValues: { ":folderPath": updatedPath, ":userId": req.user.userId }
-        }));
-        updated++;
-      }
-    }
+      return fp === normalizedOld || fp.startsWith(normalizedOld + "/");
+    });
 
-    res.json({ success: true, oldPath: normalizedOld, newPath, filesUpdated: updated });
+    await mapWithConcurrency(toUpdate, (item) => {
+      const fp = item.folderPath || "/";
+      const updatedPath = newPath + fp.slice(normalizedOld.length);
+      return docClient.send(new UpdateCommand({
+        TableName: FILES_TABLE,
+        Key: { id: item.id },
+        UpdateExpression: "SET #folderPath = :folderPath",
+        ConditionExpression: "userId = :userId",
+        ExpressionAttributeNames: { "#folderPath": "folderPath" },
+        ExpressionAttributeValues: { ":folderPath": updatedPath, ":userId": req.user.userId }
+      }));
+    });
+
+    res.json({ success: true, oldPath: normalizedOld, newPath, filesUpdated: toUpdate.length });
   } catch (error) {
     if (error.name === "ConditionalCheckFailedException") {
       return res.status(403).json({ error: "Access denied" });
@@ -238,7 +258,9 @@ router.post("/rename", async (req, res) => {
   }
 });
 
-// Delete a folder — moves all files in it to parent folder
+// Delete a folder — permanently deletes every file inside it (and any
+// subfolders). Files are removed from S3 + DynamoDB asynchronously via the
+// deletion queue, the same path used by a single-file delete.
 router.post("/delete", async (req, res) => {
   try {
     const { folderPath } = req.body;
@@ -252,11 +274,6 @@ router.post("/delete", async (req, res) => {
       return res.status(400).json({ error: "Cannot delete root" });
     }
 
-    // Parent path
-    const segments = normalizedPath.split("/").filter(Boolean);
-    segments.pop();
-    const parentPath = segments.length === 0 ? "/" : "/" + segments.join("/");
-
     // Find all files belonging to user
     const result = await docClient.send(new QueryCommand({
       TableName: FILES_TABLE,
@@ -266,53 +283,22 @@ router.post("/delete", async (req, res) => {
       ProjectionExpression: "id, folderPath"
     }));
 
-    let updated = 0;
-    for (const item of result.Items || []) {
+    // Match files directly in the folder or nested in any subfolder.
+    const toDelete = (result.Items || []).filter((item) => {
       const fp = item.folderPath || "/";
+      return fp === normalizedPath || fp.startsWith(normalizedPath + "/");
+    });
 
-      if (fp === normalizedPath) {
-        // Files directly in this folder → move to parent
-        if (parentPath === "/") {
-          await docClient.send(new UpdateCommand({
-            TableName: FILES_TABLE,
-            Key: { id: item.id },
-            UpdateExpression: "REMOVE #folderPath",
-            ConditionExpression: "userId = :userId",
-            ExpressionAttributeNames: { "#folderPath": "folderPath" },
-            ExpressionAttributeValues: { ":userId": req.user.userId }
-          }));
-        } else {
-          await docClient.send(new UpdateCommand({
-            TableName: FILES_TABLE,
-            Key: { id: item.id },
-            UpdateExpression: "SET #folderPath = :folderPath",
-            ConditionExpression: "userId = :userId",
-            ExpressionAttributeNames: { "#folderPath": "folderPath" },
-            ExpressionAttributeValues: { ":folderPath": parentPath, ":userId": req.user.userId }
-          }));
-        }
-        updated++;
-      } else if (fp.startsWith(normalizedPath + "/")) {
-        // Files in subfolders → reparent under parent
-        const remainder = fp.slice(normalizedPath.length); // e.g. "/sub/deep"
-        const newPath = parentPath === "/" ? remainder : parentPath + remainder;
-        await docClient.send(new UpdateCommand({
-          TableName: FILES_TABLE,
-          Key: { id: item.id },
-          UpdateExpression: "SET #folderPath = :folderPath",
-          ConditionExpression: "userId = :userId",
-          ExpressionAttributeNames: { "#folderPath": "folderPath" },
-          ExpressionAttributeValues: { ":folderPath": newPath, ":userId": req.user.userId }
-        }));
-        updated++;
-      }
-    }
+    // Enqueue an async deletion for each file (S3 object + DynamoDB record).
+    await mapWithConcurrency(toDelete, (item) =>
+      sqsClient.send(new SendMessageCommand({
+        QueueUrl: FILE_DELETION_QUEUE_URL,
+        MessageBody: JSON.stringify({ fileId: item.id, userId: req.user.userId })
+      }))
+    );
 
-    res.json({ success: true, filesUpdated: updated });
+    res.json({ success: true, filesDeleted: toDelete.length });
   } catch (error) {
-    if (error.name === "ConditionalCheckFailedException") {
-      return res.status(403).json({ error: "Access denied" });
-    }
     console.error("Delete folder error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -355,25 +341,25 @@ router.post("/move", async (req, res) => {
       ProjectionExpression: "id, folderPath"
     }));
 
-    let updated = 0;
-    for (const item of result.Items || []) {
+    const toUpdate = (result.Items || []).filter((item) => {
       const fp = item.folderPath || "/";
+      return fp === normalizedSource || fp.startsWith(normalizedSource + "/");
+    });
 
-      if (fp === normalizedSource || fp.startsWith(normalizedSource + "/")) {
-        const newPath = newBasePath + fp.slice(normalizedSource.length);
-        await docClient.send(new UpdateCommand({
-          TableName: FILES_TABLE,
-          Key: { id: item.id },
-          UpdateExpression: "SET #folderPath = :folderPath",
-          ConditionExpression: "userId = :userId",
-          ExpressionAttributeNames: { "#folderPath": "folderPath" },
-          ExpressionAttributeValues: { ":folderPath": newPath, ":userId": req.user.userId }
-        }));
-        updated++;
-      }
-    }
+    await mapWithConcurrency(toUpdate, (item) => {
+      const fp = item.folderPath || "/";
+      const newPath = newBasePath + fp.slice(normalizedSource.length);
+      return docClient.send(new UpdateCommand({
+        TableName: FILES_TABLE,
+        Key: { id: item.id },
+        UpdateExpression: "SET #folderPath = :folderPath",
+        ConditionExpression: "userId = :userId",
+        ExpressionAttributeNames: { "#folderPath": "folderPath" },
+        ExpressionAttributeValues: { ":folderPath": newPath, ":userId": req.user.userId }
+      }));
+    });
 
-    res.json({ success: true, newPath: newBasePath, filesUpdated: updated });
+    res.json({ success: true, newPath: newBasePath, filesUpdated: toUpdate.length });
   } catch (error) {
     if (error.name === "ConditionalCheckFailedException") {
       return res.status(403).json({ error: "Access denied" });

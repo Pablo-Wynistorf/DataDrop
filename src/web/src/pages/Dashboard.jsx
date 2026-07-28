@@ -15,7 +15,7 @@ import EditModal from "./dashboard/EditModal.jsx";
 import ShareModal from "./dashboard/ShareModal.jsx";
 import UploadUrlModal from "./dashboard/UploadUrlModal.jsx";
 import { CliModal, CliAuthModal } from "./dashboard/CliModals.jsx";
-import { MoveFileModal, CreateFolderModal, RenameFolderModal } from "./dashboard/FolderModals.jsx";
+import { MoveFileModal, BatchMoveModal, CreateFolderModal, RenameFolderModal } from "./dashboard/FolderModals.jsx";
 import ConvertModal from "./dashboard/ConvertModal.jsx";
 
 export default function Dashboard() {
@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [shareFile, setShareFile] = useState(null);
   const [convertFile, setConvertFile] = useState(null);
   const [moveFile, setMoveFile] = useState(null);
+  const [batchMoveIds, setBatchMoveIds] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [showCli, setShowCli] = useState(false);
@@ -218,9 +219,10 @@ export default function Dashboard() {
 
   function deleteFolder(folderPath) {
     setConfirm({
-      message: `Delete folder "${folderPath}"? Files will be moved to the parent folder.`,
+      message: `Delete folder "${folderPath}"? All files inside it will be permanently deleted. This cannot be undone.`,
       onConfirm: async () => {
         setConfirm(null);
+        toast("Deleting folder...", "info", 2000);
         const { res, data } = await apiFetch("/folders/delete", { method: "POST", ...jsonBody({ folderPath }) });
         if (res.ok) {
           if (currentFolder === folderPath || currentFolder.startsWith(folderPath + "/")) {
@@ -229,10 +231,37 @@ export default function Dashboard() {
             setCurrentFolder(segs.length ? "/" + segs.join("/") : "/");
           }
           setLocalFolders((lf) => lf.filter((p) => p !== folderPath));
+          // Optimistically drop the deleted files from the list; deletion is
+          // processed asynchronously so a reload may still show them briefly.
+          setFiles((f) =>
+            f.filter((x) => {
+              const fp = x.folderPath || "/";
+              return fp !== folderPath && !fp.startsWith(folderPath + "/");
+            })
+          );
           toast("Folder deleted", "success");
-          loadFiles();
         } else {
           toast(data?.error || "Failed to delete folder", "error");
+        }
+      },
+    });
+  }
+
+  function deleteFiles(fileIds) {
+    if (!fileIds || fileIds.length === 0) return;
+    const n = fileIds.length;
+    setConfirm({
+      message: `Delete ${n} file${n !== 1 ? "s" : ""}? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirm(null);
+        toast(`Deleting ${n} file${n !== 1 ? "s" : ""}...`, "info", 2000);
+        const { res, data } = await apiFetch("/files/batch-delete", { method: "POST", ...jsonBody({ fileIds }) });
+        if (res.ok) {
+          const ids = new Set(fileIds);
+          setFiles((f) => f.filter((x) => !ids.has(x.id)));
+          toast(`${n} file${n !== 1 ? "s" : ""} deleted`, "success");
+        } else {
+          toast(data?.error || "Failed to delete files", "error");
         }
       },
     });
@@ -327,6 +356,8 @@ export default function Dashboard() {
           onShare={setShareFile}
           onConvert={setConvertFile}
           onDelete={deleteFile}
+          onBatchDelete={deleteFiles}
+          onBatchMove={setBatchMoveIds}
         />
       </div>
 
@@ -361,6 +392,18 @@ export default function Dashboard() {
           onClose={() => setMoveFile(null)}
           onMoved={() => {
             setMoveFile(null);
+            loadFiles();
+          }}
+        />
+      )}
+      {batchMoveIds && (
+        <BatchMoveModal
+          fileIds={batchMoveIds}
+          folders={folders}
+          toast={toast}
+          onClose={() => setBatchMoveIds(null)}
+          onMoved={() => {
+            setBatchMoveIds(null);
             loadFiles();
           }}
         />

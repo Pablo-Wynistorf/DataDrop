@@ -18,6 +18,7 @@ import {
   Clock,
   Download,
   Refresh,
+  Close,
 } from "../../components/icons.jsx";
 import FileIcon from "../../components/FileIcon.jsx";
 import { formatFileSize, formatDate } from "../../lib/format.js";
@@ -73,6 +74,26 @@ function Breadcrumb({ currentFolder, onNavigate }) {
 // it flips upward when there isn't room below.
 const MENU_WIDTH = 192; // w-48
 const MENU_ITEM_HEIGHT = 40;
+
+// A checkbox that also supports the indeterminate visual state (used by the
+// "select all" header when only some rows are selected).
+function Checkbox({ checked, indeterminate = false, onChange, label }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={label}
+      onClick={(e) => e.stopPropagation()}
+      className="h-4 w-4 cursor-pointer rounded border-slate-300 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
+    />
+  );
+}
 
 function RowMenu({ items }) {
   const [open, setOpen] = useState(false);
@@ -252,8 +273,11 @@ export default function FilesSection({
   onShare,
   onConvert,
   onDelete,
+  onBatchDelete,
+  onBatchMove,
 }) {
   const [showFilters, setShowFilters] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
   const [refreshing, setRefreshing] = useState(false);
   const filterBtnRef = useRef(null);
   const [sort, setSort] = useState({ by: "name", dir: "asc" });
@@ -264,6 +288,45 @@ export default function FilesSection({
   const sortedFolders = [...subfolders].sort((a, b) =>
     (sort.by === "name" && sort.dir === "desc" ? -1 : 1) * a.localeCompare(b)
   );
+
+  // ---- Multi-select ----------------------------------------------------
+  const visibleIds = visible.map((f) => f.id);
+  const selectedCount = visibleIds.filter((id) => selected.has(id)).length;
+  const allSelected = visible.length > 0 && selectedCount === visible.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  // Drop the selection whenever the visible set changes underneath us
+  // (navigating folders or applying filters) so stale ids never linger.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [currentFolder, filters]);
+
+  const toggleOne = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const toggleAll = () =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+
+  const clearSelection = () => setSelected(new Set());
+  const selectedIds = () => visible.filter((f) => selected.has(f.id)).map((f) => f.id);
+
+  const runBatchDelete = () => {
+    onBatchDelete?.(selectedIds());
+    clearSelection();
+  };
+  const runBatchMove = () => {
+    onBatchMove?.(selectedIds());
+    clearSelection();
+  };
 
   const toggleSort = (by) =>
     setSort((s) => (s.by === by ? { by, dir: s.dir === "asc" ? "desc" : "asc" } : { by, dir: "asc" }));
@@ -380,15 +443,54 @@ export default function FilesSection({
         )}
       </div>
 
-      {activeCount > 0 && (
-        <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-sm text-slate-500">
-          Showing {visible.length} of {allFiles.length} files
+      {selectedCount > 0 ? (
+        <div className="flex items-center justify-between gap-3 border-b border-brand-100 bg-brand-50 px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm font-medium text-brand-700">
+            <span className="flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-brand-600 px-1.5 text-xs font-semibold text-white">
+              {selectedCount}
+            </span>
+            selected
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={runBatchMove}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-900"
+            >
+              <Folder className="h-4 w-4" />
+              <span className="hidden sm:inline">Move</span>
+            </button>
+            <button
+              onClick={runBatchDelete}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-rose-600 transition hover:bg-white"
+            >
+              <Trash className="h-4 w-4" />
+              <span className="hidden sm:inline">Delete</span>
+            </button>
+            <button
+              onClick={clearSelection}
+              title="Clear selection"
+              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white hover:text-slate-700"
+            >
+              <Close className="h-4 w-4" />
+            </button>
+          </div>
         </div>
+      ) : (
+        activeCount > 0 && (
+          <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-sm text-slate-500">
+            Showing {visible.length} of {allFiles.length} files
+          </div>
+        )
       )}
 
       {/* Column header */}
       {hasRows && (
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-2 text-xs font-medium uppercase tracking-wide">
+          <div className="flex w-6 flex-shrink-0 items-center justify-center">
+            {visible.length > 0 && (
+              <Checkbox checked={allSelected} indeterminate={someSelected} onChange={toggleAll} label="Select all files" />
+            )}
+          </div>
           <div className="w-10 flex-shrink-0" />
           <SortHeader
             label="Name"
@@ -426,6 +528,7 @@ export default function FilesSection({
               className="group flex cursor-pointer items-center gap-3 px-4 py-2.5 transition hover:bg-brand-50/50"
               onClick={() => onNavigate(folder)}
             >
+              <div className="w-6 flex-shrink-0" />
               <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-500">
                 <Folder className="h-5 w-5" />
               </div>
@@ -470,8 +573,17 @@ export default function FilesSection({
           });
           menuItems.push({ label: "Delete", icon: <Trash className="h-4 w-4" />, onClick: () => onDelete(file), danger: true });
 
+          const isSelected = selected.has(file.id);
           return (
-            <div key={file.id} className="group flex items-center gap-3 px-4 py-2.5 transition hover:bg-brand-50/50">
+            <div
+              key={file.id}
+              className={`group flex items-center gap-3 px-4 py-2.5 transition ${
+                isSelected ? "bg-brand-50" : "hover:bg-brand-50/50"
+              }`}
+            >
+              <div className="flex w-6 flex-shrink-0 items-center justify-center">
+                <Checkbox checked={isSelected} onChange={() => toggleOne(file.id)} label={`Select ${file.fileName}`} />
+              </div>
               <FileIcon file={file} className="h-10 w-10" />
 
               <div className="min-w-0 flex-1">

@@ -376,6 +376,49 @@ router.patch("/:fileId", async (req, res) => {
   }
 });
 
+// Batch delete: queue deletion for multiple files at once. Each file's
+// ownership is verified before it is enqueued; unauthorized/missing files are
+// reported back but do not fail the whole request.
+router.post("/batch-delete", async (req, res) => {
+  try {
+    const { fileIds } = req.body;
+
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      return res.status(400).json({ error: "fileIds array is required" });
+    }
+
+    const results = [];
+    for (const fileId of fileIds) {
+      try {
+        const file = await docClient.send(new GetCommand({
+          TableName: FILES_TABLE,
+          Key: { id: fileId }
+        }));
+
+        if (!file.Item || file.Item.userId !== req.user.userId) {
+          results.push({ fileId, status: "not_found" });
+          continue;
+        }
+
+        await sqsClient.send(new SendMessageCommand({
+          QueueUrl: FILE_DELETION_QUEUE_URL,
+          MessageBody: JSON.stringify({ fileId, userId: req.user.userId })
+        }));
+
+        results.push({ fileId, status: "queued" });
+      } catch (err) {
+        console.error(`Batch delete error for ${fileId}:`, err);
+        results.push({ fileId, status: "error" });
+      }
+    }
+
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error("Batch delete error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/:fileId", async (req, res) => {
   try {
     const { fileId } = req.params;

@@ -40,6 +40,49 @@ export function MoveFileModal({ file, folders, onClose, onMoved, toast }) {
   );
 }
 
+export function BatchMoveModal({ fileIds, folders, onClose, onMoved, toast }) {
+  const [target, setTarget] = useState("/");
+  const [moving, setMoving] = useState(false);
+  async function move() {
+    setMoving(true);
+    const { res, data } = await apiFetch("/folders/move-files", {
+      method: "POST",
+      ...jsonBody({ fileIds, folderPath: target }),
+    });
+    setMoving(false);
+    if (res.ok) {
+      const moved = (data?.results || []).filter((r) => r.status === "moved").length;
+      toast(`Moved ${moved} file${moved !== 1 ? "s" : ""}`, "success");
+      onMoved();
+    } else {
+      toast(data?.error || "Failed to move files", "error");
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title="Move Files to Folder" icon={<Folder className="h-5 w-5 text-amber-500" />}>
+      <p className="mb-4 text-sm text-slate-500">
+        Moving {fileIds.length} file{fileIds.length !== 1 ? "s" : ""}.
+      </p>
+      <label className="label">Select destination folder</label>
+      <select className="field" value={target} onChange={(e) => setTarget(e.target.value)}>
+        {folders.map((f) => (
+          <option key={f} value={f}>
+            {f === "/" ? "/ (root)" : f}
+          </option>
+        ))}
+      </select>
+      <div className="mt-6 flex justify-end gap-3">
+        <button onClick={onClose} className="px-4 py-2 text-slate-500 transition hover:text-slate-800">
+          Cancel
+        </button>
+        <button onClick={move} disabled={moving} className="btn-primary px-4 py-2">
+          {moving ? "Moving…" : "Move"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 export function CreateFolderModal({ currentFolder, onClose, onCreate }) {
   const [name, setName] = useState("");
   function submit() {
