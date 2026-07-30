@@ -201,7 +201,7 @@ export default function Admin() {
               Sign in
             </a>
           ) : (
-            <a href="/" className="btn-ghost w-full">
+            <a href="/app" className="btn-ghost w-full">
               Back to DataDrop
             </a>
           )}
@@ -227,7 +227,7 @@ export default function Admin() {
               <Refresh className="h-4 w-4" />
               <span className="hidden sm:inline">Reload</span>
             </button>
-            <a href="/" className="header-action" title="Back to DataDrop">
+            <a href="/app" className="header-action" title="Back to DataDrop">
               <span>Dashboard</span>
             </a>
           </div>

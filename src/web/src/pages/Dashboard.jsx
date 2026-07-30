@@ -18,6 +18,21 @@ import { CliModal, CliAuthModal } from "./dashboard/CliModals.jsx";
 import { MoveFileModal, BatchMoveModal, CreateFolderModal, RenameFolderModal } from "./dashboard/FolderModals.jsx";
 import ConvertModal from "./dashboard/ConvertModal.jsx";
 
+// Marks that we already sent the visitor to the identity provider in this tab.
+const LOGIN_ATTEMPT_KEY = "dd_login_redirect";
+// A CLI auth code arrives as "/app?cli_auth=...". The OIDC round trip drops the
+// query string, so stash it for the return leg.
+const CLI_AUTH_KEY = "dd_cli_auth";
+
+function takeCliAuthCode() {
+  const fromUrl = new URLSearchParams(window.location.search).get("cli_auth");
+  if (fromUrl) {
+    sessionStorage.setItem(CLI_AUTH_KEY, fromUrl);
+    return fromUrl;
+  }
+  return sessionStorage.getItem(CLI_AUTH_KEY);
+}
+
 export default function Dashboard() {
   const toast = useToast();
   const [view, setView] = useState("loading"); // loading | login | main
@@ -56,10 +71,19 @@ export default function Dashboard() {
         if (refresh.ok) res = await fetch(`${API_URL}/auth/verify`, { credentials: "include" });
       }
       if (res.ok) {
+        sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
         setUser(await res.json());
         setView("main");
         loadFiles();
       } else {
+        // No valid session: bounce straight to the identity provider once. The
+        // flag prevents an endless /app -> IdP -> /app loop when the callback
+        // does not produce a usable session (e.g. cookies blocked).
+        if (!sessionStorage.getItem(LOGIN_ATTEMPT_KEY)) {
+          sessionStorage.setItem(LOGIN_ATTEMPT_KEY, "1");
+          window.location.replace(`${API_URL}/auth/login`);
+          return;
+        }
         setView("login");
       }
     } catch {
@@ -74,15 +98,19 @@ export default function Dashboard() {
   // Check for CLI auth request once logged in.
   useEffect(() => {
     if (view !== "main") return;
-    const code = new URLSearchParams(window.location.search).get("cli_auth");
+    const code = takeCliAuthCode();
     if (!code) return;
     (async () => {
       try {
         const res = await fetch(`${API_URL}/auth/cli/login/${code}`);
         const data = await res.json();
         if (res.ok && data.status === "pending") setCliAuthCode(code);
-        else toast("Invalid or expired CLI auth code", "error");
+        else {
+          sessionStorage.removeItem(CLI_AUTH_KEY);
+          toast("Invalid or expired CLI auth code", "error");
+        }
       } catch {
+        sessionStorage.removeItem(CLI_AUTH_KEY);
         toast("Failed to verify CLI auth code", "error");
       }
     })();
@@ -92,6 +120,7 @@ export default function Dashboard() {
     const url = new URL(window.location);
     url.searchParams.delete("cli_auth");
     window.history.replaceState({}, "", url);
+    sessionStorage.removeItem(CLI_AUTH_KEY);
     setCliAuthCode(null);
   }
 
@@ -105,16 +134,13 @@ export default function Dashboard() {
     }
   }
 
-  function login() {
-    window.location.href = `${API_URL}/auth/login`;
-  }
-
   async function logout() {
     try {
       await fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" });
     } catch {}
-    setUser(null);
-    setView("login");
+    // Back to the static landing page, which needs no session to render.
+    sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
+    window.location.href = "/";
   }
 
   async function runUploads(selectedFiles, opts) {
@@ -294,7 +320,7 @@ export default function Dashboard() {
     );
   }
 
-  if (view === "login") return <LoginView onLogin={login} />;
+  if (view === "login") return <SignInPrompt />;
 
   return (
     <div className="relative min-h-screen">
@@ -501,44 +527,25 @@ async function uploadOneAggregated(file, opts, uploadedSoFar, totalSize, tracker
   }
 }
 
-function LoginView({ onLogin }) {
+// Fallback for /app without a usable session. The marketing/login page lives at
+// "/" as static HTML, so this stays deliberately small: it only shows up when
+// the automatic sign-in redirect already ran and still came back unauthorized.
+function SignInPrompt() {
   return (
-    <div className="relative min-h-screen">
+    <div className="relative flex min-h-screen items-center justify-center p-4">
       <Background />
-      <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
+      <div className="card relative z-10 w-full max-w-md p-8 text-center">
+        <div className="mb-6 flex justify-center">
           <Logo />
-          <button
-            onClick={onLogin}
-            className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            Log in
-          </button>
-        </header>
-
-        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-10 px-6 py-10 lg:flex-row lg:justify-between lg:py-20">
-          <div className="max-w-md">
-            <h1 className="text-5xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-6xl">
-              Welcome to DataDrop
-            </h1>
-            <p className="mt-6 text-lg text-slate-500">
-              Securely share files with anyone, anywhere.
-            </p>
-          </div>
-
-          <div className="card w-full max-w-md p-8">
-            <div className="mb-6 flex justify-center">
-              <Logo size="lg" withText={false} />
-            </div>
-            <p className="text-center text-xl leading-relaxed text-slate-600">
-              It's never been so easy and secure to share files — and completely{" "}
-              <span className="font-bold text-slate-900">for free</span>!
-            </p>
-            <button onClick={onLogin} className="btn-primary mt-8 w-full py-4 text-lg">
-              Sign in with OIDC
-            </button>
-          </div>
-        </main>
+        </div>
+        <h1 className="mb-2 text-xl font-semibold text-slate-900">Sign in required</h1>
+        <p className="mb-6 text-slate-600">Your session has expired or could not be established.</p>
+        <a href={`${API_URL}/auth/login`} className="btn-primary w-full">
+          Sign in
+        </a>
+        <a href="/" className="btn-ghost mt-3 w-full">
+          Back to home
+        </a>
       </div>
     </div>
   );
