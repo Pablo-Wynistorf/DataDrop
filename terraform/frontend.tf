@@ -19,6 +19,7 @@ locals {
     "tailwind.config.js",
     "postcss.config.js",
     "index.html",
+    "app.html",
     "file.html",
     "upload.html",
     "admin.html",
@@ -58,16 +59,25 @@ resource "null_resource" "frontend_build" {
         --region "${var.aws_region}" \
         --delete \
         --exclude "index.html" \
+        --exclude "app.html" \
         --exclude "file.html" \
         --exclude "upload.html" \
         --exclude "admin.html" \
         --cache-control "public,max-age=31536000,immutable"
 
       echo "==> Uploading HTML entrypoints"
-      # "/" -> index.html, "/file" -> key "file", "/upload" -> key "upload",
-      # "/admin" -> key "admin" (CloudFront behaviors map those paths to these
-      # S3 keys).
+      # "/" -> index.html, "/app" -> key "app", "/file" -> key "file",
+      # "/upload" -> key "upload", "/admin" -> key "admin" (CloudFront
+      # behaviors map those paths to these S3 keys).
+      #
+      # The landing page is static and never changes between deploys other than
+      # its asset hashes, so let CloudFront hold it at the edge (s-maxage) while
+      # browsers revalidate (max-age=0). Deploys invalidate the distribution, so
+      # a stale edge copy is never served after a release.
       aws s3 cp dist/index.html "s3://${aws_s3_bucket.frontend.id}/index.html" \
+        --region "${var.aws_region}" --content-type "text/html" \
+        --cache-control "public,max-age=0,s-maxage=86400,must-revalidate"
+      aws s3 cp dist/app.html "s3://${aws_s3_bucket.frontend.id}/app" \
         --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"
       aws s3 cp dist/file.html "s3://${aws_s3_bucket.frontend.id}/file" \
         --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"

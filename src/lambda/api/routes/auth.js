@@ -19,6 +19,9 @@ const REDIRECT_URI = process.env.REDIRECT_URI;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// "/" is the static landing page; the signed-in app lives at "/app".
+const APP_URL = `${(FRONTEND_URL || "").replace(/\/+$/, "")}/app`;
+
 // Cache OIDC discovery document to avoid fetching on every request
 let oidcConfigCache = null;
 let oidcConfigCacheTime = 0;
@@ -144,7 +147,7 @@ router.get("/callback", async (req, res) => {
       }
     }
 
-    res.redirect(FRONTEND_URL);
+    res.redirect(APP_URL);
   } catch (error) {
     console.error("Callback error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -236,7 +239,7 @@ router.post("/cli/login", async (req, res) => {
       }
     }));
 
-    const authUrl = `${FRONTEND_URL}?cli_auth=${cliCode}`;
+    const authUrl = `${APP_URL}?cli_auth=${cliCode}`;
     
     res.json({
       code: cliCode,
