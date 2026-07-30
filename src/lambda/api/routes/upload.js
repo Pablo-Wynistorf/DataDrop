@@ -64,17 +64,17 @@ router.post("/", async (req, res) => {
 
     // Check role-based permissions
     if (isCdn && !req.user.canUploadCdn) {
-      return res.status(403).json({ error: "You don't have permission to upload CDN files. Required role: cdnUser" });
+      return res.status(403).json({ error: "You don't have permission to upload CDN files. Ask an administrator to enable it." });
     }
     if (!isCdn && !req.user.canUploadFile) {
-      return res.status(403).json({ error: "You don't have permission to upload private files. Required role: fileUser" });
+      return res.status(403).json({ error: "You don't have permission to upload private files. Ask an administrator to enable it." });
     }
 
     // Check file size limit
     if (fileSize && fileSize > req.user.maxFileSizeBytes) {
       const maxSizeGB = req.user.maxFileSizeBytes / (1024 * 1024 * 1024);
       return res.status(413).json({ 
-        error: `File size exceeds your limit of ${maxSizeGB}GB. Add fileSize_X role to increase.`,
+        error: `File size exceeds your limit of ${maxSizeGB}GB. Ask an administrator to increase it.`,
         maxFileSizeBytes: req.user.maxFileSizeBytes
       });
     }

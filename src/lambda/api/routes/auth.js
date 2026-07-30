@@ -3,7 +3,9 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
+import * as jose from "jose";
 import { requireAuth } from "../middleware/auth.js";
+import { upsertUserProfile } from "../lib/users.js";
 
 const router = Router();
 const client = new DynamoDBClient({});
@@ -127,6 +129,21 @@ router.get("/callback", async (req, res) => {
       });
     }
 
+    // Persist the display name/email captured at login. This is the source of
+    // truth for the name, so it survives later token refreshes that may no
+    // longer include the profile/name claim.
+    if (tokens.id_token) {
+      try {
+        const claims = jose.decodeJwt(tokens.id_token);
+        await upsertUserProfile(claims.sub, {
+          name: claims.name || claims.given_name || claims.preferred_username,
+          email: claims.email,
+        });
+      } catch (profileError) {
+        console.error("Failed to persist user profile:", profileError.message);
+      }
+    }
+
     res.redirect(FRONTEND_URL);
   } catch (error) {
     console.error("Callback error:", error);
@@ -141,6 +158,7 @@ router.get("/verify", requireAuth, async (req, res) => {
     email: req.user.email,
     name: req.user.name,
     roles: req.user.roles,
+    isAdmin: req.user.isAdmin,
     canUploadCdn: req.user.canUploadCdn,
     canUploadFile: req.user.canUploadFile,
     maxFileSizeBytes: req.user.maxFileSizeBytes

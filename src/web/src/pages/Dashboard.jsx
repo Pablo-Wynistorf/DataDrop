@@ -3,7 +3,7 @@ import Background from "../components/Background.jsx";
 import Logo from "../components/Logo.jsx";
 import { useToast } from "../components/Toast.jsx";
 import { ConfirmDialog } from "../components/Modal.jsx";
-import { Terminal, Link, LogOut } from "../components/icons.jsx";
+import { Terminal, Link, LogOut, Cog } from "../components/icons.jsx";
 import { API_URL, apiFetch, jsonBody } from "../lib/api.js";
 import { UploadTracker, putToS3, uploadAuthedFile, computeFolderPath } from "../lib/upload.js";
 import { makeEmptyFilters } from "../lib/fileFilters.js";
@@ -315,6 +315,12 @@ export default function Dashboard() {
               </div>
             )}
             <span className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
+            {user?.isAdmin && (
+              <a href="/admin" className="header-action" title="Admin settings">
+                <Cog className="h-4 w-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </a>
+            )}
             <button onClick={() => setShowCli(true)} className="header-action" title="Download CLI">
               <Terminal className="h-4 w-4" />
               <span className="hidden sm:inline">CLI</span>

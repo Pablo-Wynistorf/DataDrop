@@ -21,6 +21,7 @@ locals {
     "index.html",
     "file.html",
     "upload.html",
+    "admin.html",
   ]
 
   web_source_hash = sha1(join("", concat(
@@ -59,16 +60,20 @@ resource "null_resource" "frontend_build" {
         --exclude "index.html" \
         --exclude "file.html" \
         --exclude "upload.html" \
+        --exclude "admin.html" \
         --cache-control "public,max-age=31536000,immutable"
 
       echo "==> Uploading HTML entrypoints"
-      # "/" -> index.html, "/file" -> key "file", "/upload" -> key "upload"
-      # (CloudFront behaviors map those paths to these S3 keys).
+      # "/" -> index.html, "/file" -> key "file", "/upload" -> key "upload",
+      # "/admin" -> key "admin" (CloudFront behaviors map those paths to these
+      # S3 keys).
       aws s3 cp dist/index.html "s3://${aws_s3_bucket.frontend.id}/index.html" \
         --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"
       aws s3 cp dist/file.html "s3://${aws_s3_bucket.frontend.id}/file" \
         --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"
       aws s3 cp dist/upload.html "s3://${aws_s3_bucket.frontend.id}/upload" \
+        --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"
+      aws s3 cp dist/admin.html "s3://${aws_s3_bucket.frontend.id}/admin" \
         --region "${var.aws_region}" --content-type "text/html" --cache-control "no-cache"
 
       echo "==> Invalidating CloudFront distribution ${aws_cloudfront_distribution.main.id}"

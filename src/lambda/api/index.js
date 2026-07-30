@@ -8,6 +8,7 @@ import downloadRoutes from "./routes/download.js";
 import foldersRoutes from "./routes/folders.js";
 import uploadUrlsRoutes from "./routes/uploadUrls.js";
 import publicUploadRoutes from "./routes/publicUpload.js";
+import adminRoutes from "./routes/admin.js";
 import { requireAuth } from "./middleware/auth.js";
 
 
@@ -41,6 +42,7 @@ app.use("/api/upload", requireAuth, uploadRoutes);
 app.use("/api/files", requireAuth, filesRoutes);
 app.use("/api/folders", requireAuth, foldersRoutes);
 app.use("/api/upload-urls", requireAuth, uploadUrlsRoutes);
+app.use("/api/admin", requireAuth, adminRoutes);
 app.use("/api/file", downloadRoutes);
 
 // Public routes (token-validated, no auth)

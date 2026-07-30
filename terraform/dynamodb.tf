@@ -15,6 +15,19 @@ resource "aws_dynamodb_table" "sessions" {
   }
 }
 
+# Users table - stores per-user permissions (managed via the admin UI) and the
+# display name/email captured at login so it survives token refreshes.
+resource "aws_dynamodb_table" "users" {
+  name         = "${var.project_name}-users"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "userId"
+
+  attribute {
+    name = "userId"
+    type = "S"
+  }
+}
+
 # Files table
 resource "aws_dynamodb_table" "files" {
   name         = "${var.project_name}-files"

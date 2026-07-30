@@ -1,12 +1,16 @@
 import * as jose from "jose";
 import jwt from "jsonwebtoken";
+import { getOrCreateUser, getEffectivePermissions } from "../lib/users.js";
 
 const OIDC_ISSUER = process.env.OIDC_ISSUER;
 const OIDC_CLIENT_ID = process.env.OIDC_CLIENT_ID;
 const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 const JWT_SECRET = process.env.JWT_SECRET;
-const DEFAULT_MAX_FILE_SIZE_GB = 1;
+
+// The only role we consume from the OIDC provider. Everything else (upload
+// permissions, size limits) is managed inside the app via the users table.
+const ADMIN_ROLE = "admin";
 
 let jwksCache = null;
 let jwksCacheTime = 0;
@@ -51,29 +55,8 @@ function getCookieOptions() {
   };
 }
 
-function parseRoles(roles) {
-  const result = {
-    canUploadCdn: false,
-    canUploadFile: false,
-    maxFileSizeBytes: DEFAULT_MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
-  };
-
-  if (!Array.isArray(roles)) return result;
-
-  for (const role of roles) {
-    if (role === "cdnUser") {
-      result.canUploadCdn = true;
-    } else if (role === "fileUser") {
-      result.canUploadFile = true;
-    } else if (role.startsWith("fileSize_")) {
-      const sizeGB = parseInt(role.replace("fileSize_", ""), 10);
-      if (!isNaN(sizeGB) && sizeGB > 0) {
-        result.maxFileSizeBytes = sizeGB * 1024 * 1024 * 1024;
-      }
-    }
-  }
-
-  return result;
+function isAdminRole(roles) {
+  return Array.isArray(roles) && roles.includes(ADMIN_ROLE);
 }
 
 async function tryRefresh(refreshToken) {
@@ -109,17 +92,26 @@ function decodeIdToken(idToken) {
   }
 }
 
-function buildUser(accessPayload, idPayload) {
+async function buildUser(accessPayload, idPayload) {
   // Prefer id_token claims for user info and roles, fall back to access_token
   const claims = idPayload || accessPayload;
   const roles = claims.roles || accessPayload.roles || [];
-  const permissions = parseRoles(roles);
+  const userId = accessPayload.sub;
+
+  // Permissions and the display name live in the users table so they persist
+  // across token refreshes (a refreshed id_token may drop the profile/name
+  // claim, which previously made the name fall back to the raw user id).
+  const claimName = claims.name || claims.given_name || claims.preferred_username;
+  const claimEmail = claims.email || accessPayload.email;
+  const record = await getOrCreateUser(userId, { name: claimName, email: claimEmail });
+  const permissions = getEffectivePermissions(record);
 
   return {
-    userId: accessPayload.sub,
-    email: claims.email || accessPayload.email,
-    name: claims.name || claims.email || accessPayload.sub,
+    userId,
+    email: record.email || claimEmail,
+    name: record.name || claimName || claimEmail || userId,
     roles,
+    isAdmin: isAdminRole(roles),
     ...permissions
   };
 }
@@ -135,12 +127,15 @@ export async function requireAuth(req, res, next) {
         return res.status(401).json({ error: "Invalid token type" });
       }
 
-      const permissions = parseRoles(payload.roles);
+      const roles = payload.roles || [];
+      const record = await getOrCreateUser(payload.sub, { name: payload.name, email: payload.email });
+      const permissions = getEffectivePermissions(record);
       req.user = {
         userId: payload.sub,
-        email: payload.email,
-        name: payload.name || payload.email,
-        roles: payload.roles || [],
+        email: record.email || payload.email,
+        name: record.name || payload.name || payload.email,
+        roles,
+        isAdmin: isAdminRole(roles),
         ...permissions
       };
       return next();
@@ -163,7 +158,7 @@ export async function requireAuth(req, res, next) {
     });
 
     const idClaims = req.cookies?.id_token ? decodeIdToken(req.cookies.id_token) : null;
-    req.user = buildUser(payload, idClaims);
+    req.user = await buildUser(payload, idClaims);
     next();
   } catch (error) {
     if (error.code === "ERR_JWT_EXPIRED" && req.cookies?.refresh_token) {
@@ -190,7 +185,7 @@ export async function requireAuth(req, res, next) {
           }
 
           const idClaims = tokens.id_token ? decodeIdToken(tokens.id_token) : null;
-          req.user = buildUser(payload, idClaims);
+          req.user = await buildUser(payload, idClaims);
           return next();
         } catch (refreshError) {
           console.error("Refreshed token verification failed:", refreshError.message);
@@ -201,4 +196,14 @@ export async function requireAuth(req, res, next) {
     console.error("JWT verification failed:", error.message);
     return res.status(401).json({ error: "Invalid token" });
   }
+}
+
+// Gate admin-only endpoints. Must run after requireAuth so req.user is set.
+// Admin access is granted solely by the "admin" role coming from the OIDC
+// provider - it is the one role DataDrop still reads from OneIDP.
+export function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
 }

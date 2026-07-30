@@ -2,9 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
 
-// Multi-page build: the main dashboard, the public download page, and the
-// public upload page each get their own HTML entry point. CloudFront serves
-// them at "/", "/file" and "/upload" respectively.
+// Multi-page build: the main dashboard, the public download page, the public
+// upload page, and the admin page each get their own HTML entry point.
+// CloudFront serves them at "/", "/file", "/upload" and "/admin" respectively.
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -14,6 +14,7 @@ export default defineConfig({
         main: resolve(__dirname, "index.html"),
         file: resolve(__dirname, "file.html"),
         upload: resolve(__dirname, "upload.html"),
+        admin: resolve(__dirname, "admin.html"),
       },
     },
   },

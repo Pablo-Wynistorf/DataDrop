@@ -67,7 +67,8 @@ resource "aws_iam_role_policy" "lambda" {
           aws_dynamodb_table.files.arn,
           "${aws_dynamodb_table.files.arn}/index/*",
           aws_dynamodb_table.upload_urls.arn,
-          "${aws_dynamodb_table.upload_urls.arn}/index/*"
+          "${aws_dynamodb_table.upload_urls.arn}/index/*",
+          aws_dynamodb_table.users.arn
         ]
       },
       {
@@ -146,6 +147,7 @@ resource "aws_lambda_function" "api" {
       JWT_SECRET              = var.jwt_secret
       FILE_DELETION_QUEUE_URL = aws_sqs_queue.file_deletion.url
       UPLOAD_URLS_TABLE       = aws_dynamodb_table.upload_urls.name
+      USERS_TABLE             = aws_dynamodb_table.users.name
     }
   }
 
